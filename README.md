@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/panel-sala.png" width="300" alt="JD CONTROL">
-</p>
-
 <h1 align="center">JD CONTROL</h1>
 
 <p align="center">
