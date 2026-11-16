@@ -1900,9 +1900,9 @@ async function handler(req, res) {
   const p = url.pathname;
   const secure = isSecure(req);
 
-  if (p === '/' || p === '/host') return serveStatic(res, 'host.html');
+  if (p === '/host') return serveStatic(res, 'host.html');
 
-  if (p === '/m' || p === '/mobile') {
+  if (p === '/' || p === '/m' || p === '/mobile') {
     if (!secure) {
       const host = (req.headers.host || '').split(':')[0] || PRIMARY_IP;
       res.writeHead(302, { Location: `https://${host}:${HTTPS_PORT}${req.url}` });
@@ -2030,7 +2030,7 @@ async function handler(req, res) {
   const guess = p.slice(1);
   if (guess && fs.existsSync(path.join(PUBLIC_DIR, guess))) return serveStatic(res, guess);
 
-  return serveStatic(res, 'host.html');
+  return serveStatic(res, 'mobile.html');
 }
 
 const server = https.createServer({ key: TLS.key, cert: TLS.cert }, handler);

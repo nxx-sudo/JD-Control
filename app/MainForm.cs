@@ -194,6 +194,34 @@ namespace JDControl
             catch { jdFamily = null; }
         }
 
+        static string JdText(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+
+            char[] c = text.ToCharArray();
+            for (int i = 0; i < c.Length; i++)
+            {
+                switch (c[i])
+                {
+                    case 'á': case 'à': case 'ä': case 'â': case 'ã': case 'å': c[i] = 'a'; break;
+                    case 'Á': case 'À': case 'Ä': case 'Â': case 'Ã': case 'Å': c[i] = 'A'; break;
+                    case 'é': case 'è': case 'ë': case 'ê': c[i] = 'e'; break;
+                    case 'É': case 'È': case 'Ë': case 'Ê': c[i] = 'E'; break;
+                    case 'í': case 'ì': case 'ï': case 'î': c[i] = 'i'; break;
+                    case 'Í': case 'Ì': case 'Ï': case 'Î': c[i] = 'I'; break;
+                    case 'ó': case 'ò': case 'ö': case 'ô': case 'õ': c[i] = 'o'; break;
+                    case 'Ó': case 'Ò': case 'Ö': case 'Ô': case 'Õ': c[i] = 'O'; break;
+                    case 'ú': case 'ù': case 'ü': case 'û': c[i] = 'u'; break;
+                    case 'Ú': case 'Ù': case 'Ü': case 'Û': c[i] = 'U'; break;
+                    case 'ñ': c[i] = 'n'; break;
+                    case 'Ñ': c[i] = 'N'; break;
+                    case 'ç': c[i] = 'c'; break;
+                    case 'Ç': c[i] = 'C'; break;
+                }
+            }
+            return new string(c);
+        }
+
         Font JdFont(float size, FontStyle fallbackStyle)
         {
             if (jdFamily != null) return new Font(jdFamily, size, FontStyle.Regular);
@@ -1076,7 +1104,7 @@ namespace JDControl
             dlgCaption.Controls.Add(captionClose);
 
             Label title = new Label();
-            title.Text = L.T("joinTitle");
+            title.Text = JdText(L.T("joinTitle"));
             title.Font = JdFont(15f, FontStyle.Bold);
             title.ForeColor = Color.FromArgb(244, 244, 249);
             title.SetBounds(24, 50, 332, 24);
@@ -1618,7 +1646,7 @@ namespace JDControl
             dlgCaption.Controls.Add(captionClose);
 
             Label title = new Label();
-            title.Text = L.T("settings");
+            title.Text = JdText(L.T("settings"));
             title.Font = JdFont(15f, FontStyle.Bold);
             title.ForeColor = Color.FromArgb(244, 244, 249);
             title.SetBounds(24, 50, 332, 24);
@@ -1688,7 +1716,7 @@ namespace JDControl
                 cb.Text = LangName(code);
                 dlg.Text = L.T("settings");
                 captionTitle.Text = dlg.Text;
-                title.Text = L.T("settings");
+                title.Text = JdText(L.T("settings"));
                 lLang.Text = L.T("language");
                 chk.Text = L.T("checkUpdates");
                 ver.Text = L.T("version") + " " + APP_VERSION + " " + APP_CHANNEL;
@@ -1792,7 +1820,7 @@ namespace JDControl
                         pendingUpdateTag = tag;
                         pendingUpdateUrl = page.Length > 0
                             ? page
-                            : "https://github.com/nxx-sudo/JS-Control/releases";
+                            : "https://github.com/nxx-sudo/JD-Control/releases";
 
                         LogPanel("update: hay " + tag + " (actual " + APP_VERSION + ")");
                         try { BeginInvoke(new Action(ShowUpdateBanner)); } catch { }
@@ -1854,8 +1882,7 @@ namespace JDControl
         void HideToTray()
         {
             Hide();
-            if (tray != null)
-                tray.ShowBalloonTip(2500, L.T("trayStill"), L.T("trayStillText"), ToolTipIcon.Info);
+
         }
 
         void RestoreFromTray()

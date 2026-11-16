@@ -154,7 +154,7 @@ namespace JDControl
         public static string UpdateUrl = "";
 
         public const string DEFAULT_UPDATE_URL =
-            "https://api.github.com/repos/nxx-sudo/JS-Control/releases/latest";
+            "https://api.github.com/repos/nxx-sudo/JD-Control/releases/latest";
 
         static string PathFile()
         {

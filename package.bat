@@ -28,7 +28,7 @@ if errorlevel 1 goto :error
 rem Huella del exe: quien reciba el zip puede comprobar que no se altero.
 powershell -NoProfile -Command "$h=(Get-FileHash -LiteralPath '%OUT%\JD CONTROL.exe' -Algorithm SHA256).Hash.ToLower(); ($h + '  JD CONTROL.exe') | Set-Content -LiteralPath '%OUT%\SHA256.txt' -Encoding ascii"
 
-for %%F in (server.js tunel.js tunel.bat iniciar.bat package.json package-lock.json jd.ico cloudflared.exe LEEME.md) do (
+for %%F in (server.js tunnel.js tunnel.bat start.bat package.json package-lock.json jd.ico cloudflared.exe README.md) do (
   if exist "%%F" copy /y "%%F" "%OUT%\" >nul
 )
 robocopy src "%OUT%\src" /e /njh /njs /nfl /ndl >nul

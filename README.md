@@ -1,9 +1,9 @@
 <h1 align="center">JD CONTROL</h1>
 
 <p align="center">
-  <a href="https://github.com/nxx-sudo/JS-Control/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1%20BETA-blue"></a>
+  <a href="https://github.com/nxx-sudo/JD-Control/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1%20BETA-blue"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-blue"></a>
-  <a href="https://github.com/nxx-sudo/JS-Control/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/nxx-sudo/JS-Control/total"></a>
+  <a href="https://github.com/nxx-sudo/JD-Control/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/nxx-sudo/JD-Control/total"></a>
   <a href="https://discord.gg/TU-INVITACION"><img alt="discord" src="https://img.shields.io/badge/discord-unirse-5865F2"></a>
 </p>
 
@@ -64,7 +64,7 @@ Todo el estado (jugador, canción, fase, puntuación) vive en el PC: el móvil s
 
 ## Instalación
 
-1. Descarga el zip de [Releases](https://github.com/nxx-sudo/JS-Control/releases) y descomprímelo **completo** (el `.exe` solo es la ventana; el servidor va en la carpeta).
+1. Descarga el zip de [Releases](https://github.com/nxx-sudo/JD-Control/releases) y descomprímelo **completo** (el `.exe` solo es la ventana; el servidor va en la carpeta).
 2. Abre `JD CONTROL.exe` desde esa carpeta.
 3. La primera vez descarga `cloudflared.exe` si falta (el túnel lo necesita).
 
@@ -123,13 +123,13 @@ Se guarda en `settings.json`, junto al ejecutable.
 ## Compilar
 
 ```bat
-compilar-ventana.bat
+build.bat
 ```
 
 Genera `JD CONTROL.exe` con `csc.exe`. Para la carpeta distribuible (con Node portable, dependencias y zip):
 
 ```bat
-empaquetar.bat
+package.bat
 ```
 
 ## Estructura
@@ -139,8 +139,8 @@ app/                 panel nativo en C# (MainForm.cs, Lang.cs, AssemblyInfo.cs)
 server.js            servidor: web del móvil, sala online y túnel
 src/                 puente con el juego (gamephone.js) y túnel remoto
 public/              web que carga el móvil (mobile.html, mobile.js, fuentes)
-compilar-ventana.bat compila el exe
-empaquetar.bat       genera dist/ listo para compartir
+build.bat compila el exe
+package.bat       genera dist/ listo para compartir
 ```
 
 ## Licencia
