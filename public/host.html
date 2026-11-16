@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JD CONTROL - Sala local</title>
+    <link rel="icon" href="/jd.ico" sizes="any">
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div class="stage">
+        <div class="brand">
+            <div class="brand-title">JD <span>CONTROL</span></div>
+            <div class="brand-sub">Sala local · controlador por navegador</div>
+        </div>
+
+        <div class="panel">
+            <div class="status-row">
+                <span id="gameDot" class="dot"></span>
+                <span id="gameText">Juego: esperando…</span>
+            </div>
+            <div class="status-row">
+                <span id="playersDot" class="dot"></span>
+                <span id="playersText">Jugadores conectados: 0</span>
+            </div>
+            <div id="playersList" class="players-list"></div>
+
+            <div class="panel-actions">
+                <button id="openMainBtn" class="btn-main">Abrir ventana de sala</button>
+                <button id="showCodeBtn" class="btn-ghost hidden">Ver código</button>
+            </div>
+        </div>
+
+        <div class="hint">
+            En el móvil abre el enlace de la ventana (o escanea el QR). Acepta el aviso de
+            certificado la primera vez.
+        </div>
+    </div>
+
+    <div id="modal1" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Seleccione el Estado</h3>
+            <p>Por favor elija una de las opciones:</p>
+            <div class="modal-buttons">
+                <button id="btnOffline" class="modal-btn btn-secondary">Offline</button>
+                <button id="btnOnline" class="modal-btn btn-primary">Online</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal2" class="modal-overlay">
+        <div class="modal-content modal-code">
+            <h3>Modo Online</h3>
+            <p>Su código generado de 5 dígitos es:</p>
+            <div id="codigoContainer" class="codigo-generado">-----</div>
+
+            <div class="qr-wrap">
+                <img id="qrImg" alt="QR para el móvil">
+            </div>
+            <div id="urlText" class="url-text">https://…</div>
+            <div id="remoteText" class="url-text" style="display:none"></div>
+
+            <button id="btnOcultar" class="btn-underline">ocultar</button>
+        </div>
+    </div>
+
+    <script src="host.js"></script>
+</body>
+</html>

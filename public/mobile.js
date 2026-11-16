@@ -1,0 +1,790 @@
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+
+const screens = {
+  code: $('scr-code'),
+  ready: $('scr-ready'),
+  pad: $('scr-pad'),
+  lobby: $('scr-lobby'),
+  score: $('scr-score'),
+  popup: $('scr-popup'),
+};
+
+const codeInput = $('codeInput');
+const codeErr = $('codeErr');
+const readyErr = $('readyErr');
+const connName = $('connName');
+const playerAvatar = $('playerAvatar');
+const gamePill = $('gamePill');
+const roomLine = $('roomLine');
+const stateBig = $('stateBig');
+const coachStage = $('coachStage');
+const coachNameplate = $('coachNameplate');
+const lobbyName = $('lobbyName');
+const lobbyAvatar = $('lobbyAvatar');
+const danceAvatar = $('danceAvatar');
+
+let ws = null;
+let dancing = false;
+let lastAccel = 0;
+let wakeLock = null;
+let coaches = [];
+let coachSig = '';
+let selectedCoach = 0;
+let pendingContinue = null;
+let moveLevel = 0;
+let lastMag = 9.8;
+let lastMovePaint = 0;
+let playerName = '';
+let roomCode = '';
+let connecting = false;
+let retrying = false;
+
+const remoteMode = document.documentElement.dataset.remote === '1';
+
+const params = new URLSearchParams(location.search);
+if (params.get('code')) codeInput.value = params.get('code');
+
+function show(name) {
+  Object.entries(screens).forEach(([key, el]) => el.classList.toggle('active', key === name));
+}
+
+const gameImg = (p) => {
+  if (!p) return '';
+  if (/^https?:/i.test(p)) return p;
+  const rel = p.startsWith('/') ? p : '/' + p;
+
+  if (remoteMode && roomCode) return `/g/${roomCode}${rel}`;
+  return '/game' + rel;
+};
+
+function jdName(el, text) {
+  el.textContent = text;
+  el.classList.toggle('jd-fallback', /[^\x20-\x7E]/.test(text));
+}
+
+function setName(n) {
+  const v = String(n || '').trim();
+  if (!v || v.indexOf('[icon:') === 0) return;
+  playerName = v;
+  jdName(connName, v);
+}
+
+function setAvatar(url) {
+  if (!url) return;
+  if (playerAvatar.getAttribute('src') === url) return;
+  playerAvatar.src = url;
+  playerAvatar.style.display = 'block';
+}
+
+function setOnline(on) {
+  $('btnDance').textContent = on && on.requiresReady
+    ? (on.localReady ? 'CANCELAR LISTO' : 'ESTOY LISTO')
+    : 'BAILAR!';
+  if (!on || !on.role) {
+    roomLine.textContent = '';
+    roomLine.classList.remove('on');
+    return;
+  }
+
+  let text = on.code ? `SALA ${on.code}` : 'SALA ONLINE';
+  if (on.role === 'host') text += ' · ANFITRIÓN';
+  else if (!on.connected) text += ' · CONECTANDO';
+  else text += on.admin ? ' · ADMIN' : ' · EN SALA';
+
+  if (on.hint) text += ` · ${on.hint}`;
+  else if (on.role === 'member' && on.targetSong) text += ` · ${on.targetSong}`;
+  if (on.localReady && on.totalCount)
+    text += ` · Listos ${on.readyCount}/${on.totalCount}`;
+
+  roomLine.textContent = text;
+  roomLine.classList.add('on');
+}
+
+function goHome() {
+  const socket = ws;
+  ws = null;
+  if (socket) {
+    socket.jdManual = true;
+    try { socket.close(); } catch {}
+  }
+
+  playerName = '';
+  roomCode = '';
+  connName.textContent = 'conectando...';
+  connName.classList.remove('jd-fallback');
+  playerAvatar.removeAttribute('src');
+  playerAvatar.style.display = 'none';
+  lobbyName.textContent = '';
+  lobbyAvatar.removeAttribute('src');
+  lobbyAvatar.style.display = 'none';
+  coachNameplate.classList.remove('on');
+  coachStage.innerHTML = '';
+  gamePill.textContent = 'juego…';
+  gamePill.className = '';
+  roomLine.textContent = '';
+  roomLine.classList.remove('on');
+  $('btnDance').textContent = 'BAILAR!';
+  coaches = [];
+  coachSig = '';
+  selectedCoach = 0;
+  pendingContinue = null;
+  codeInput.value = '';
+  codeErr.textContent = '';
+  readyErr.textContent = '';
+
+  try { history.replaceState(null, '', location.pathname); } catch {}
+  setDancing(false);
+  show('code');
+}
+
+function probeHost(ip, port) {
+  return new Promise((resolve) => {
+    let socket = null;
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (!value && socket) { try { socket.close(); } catch {  } }
+      resolve(value ? { socket, ip, port } : null);
+    };
+    const timer = setTimeout(() => finish(null), 1400);
+
+    try {
+      socket = new WebSocket(`wss://${ip}:${port}/ws/phone?code=${roomCode}`);
+    } catch {
+      finish(null);
+      return;
+    }
+
+    socket.addEventListener('open', () => finish(socket), { once: true });
+    socket.addEventListener('error', () => finish(null), { once: true });
+    socket.addEventListener('close', () => finish(null), { once: true });
+  });
+}
+
+function probeDirect() {
+  return fetch(`/api/room?code=${roomCode}`, { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((info) => new Promise((resolve) => {
+      const list = info && Array.isArray(info.ips) ? info.ips.slice(0, 3) : [];
+      if (!list.length) { resolve(null); return; }
+
+      const port = info.httpsPort || 8443;
+      let pending = list.length;
+      let winner = null;
+
+      list.forEach((ip) => {
+        probeHost(ip, port).then((hit) => {
+          if (!hit) {
+            pending -= 1;
+            if (!pending && !winner) resolve(null);
+            return;
+          }
+          if (winner) { try { hit.socket.close(); } catch {  } return; }
+          winner = hit;
+          resolve(hit);
+        });
+      });
+    }))
+    .catch(() => null);
+}
+
+async function connect() {
+  const code = codeInput.value.replace(/\D/g, '');
+  if (code.length !== 5) {
+    codeErr.textContent = 'El código tiene 5 dígitos.';
+    return;
+  }
+  if (connecting || retrying || ws) return;
+
+  connecting = true;
+  codeErr.textContent = '';
+  roomCode = code;
+
+  let socket = null;
+  if (remoteMode) {
+    codeErr.textContent = 'Buscando el PC en la red…';
+    const hit = await probeDirect();
+
+    if (hit) {
+      try { hit.socket.close(); } catch {  }
+      location.replace(`https://${hit.ip}:${hit.port}/m?code=${code}`);
+      return;
+    }
+    codeErr.textContent = '';
+  }
+
+  connecting = false;
+  startRelay(0);
+}
+
+function startRelay(attempt) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  attachSocket(new WebSocket(`${proto}://${location.host}/ws/phone?code=${roomCode}`), attempt);
+}
+
+function attachSocket(socket, attempt) {
+  ws = socket;
+  let opened = false;
+
+  if (socket.readyState === 1) {
+    opened = true;
+    show('ready');
+  } else {
+    socket.addEventListener('open', () => {
+      opened = true;
+      retrying = false;
+      codeErr.textContent = '';
+      show('ready');
+    });
+  }
+
+  socket.addEventListener('close', () => {
+    if (ws === socket) ws = null;
+    if (socket.jdManual) return;
+
+    if (!opened && remoteMode && !socket.jdNoRetry && attempt < 2) {
+      retrying = true;
+      codeErr.textContent = `Conectando con el servidor… (${attempt + 2}/3)`;
+      setTimeout(() => {
+        retrying = false;
+        if (!ws) startRelay(attempt + 1);
+      }, 2200);
+      return;
+    }
+
+    if (screens.pad.classList.contains('active') || screens.lobby.classList.contains('active') ||
+        screens.ready.classList.contains('active')) {
+      setTimeout(() => {
+        if (ws) return;
+        show('code');
+        codeErr.textContent = 'Se perdió la conexión. Vuelve a entrar.';
+      }, 800);
+    }
+  });
+
+  socket.addEventListener('error', () => {
+    if (!opened) {
+      codeErr.textContent = remoteMode
+        ? 'Conectando con el servidor…'
+        : 'No se pudo conectar. Revisa el código y la red.';
+    }
+  });
+
+  socket.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+
+    if (msg.type === 'error') {
+      socket.jdNoRetry = true;
+      codeErr.textContent = msg.error === 'no-room'
+        ? 'Ese código no está activo. Abre la sala en el PC.'
+        : 'El PC no está conectado al servidor remoto.';
+    } else if (msg.type === 'joined') {
+      if (!playerName) connName.textContent = 'conectado';
+    } else if (msg.type === 'online') {
+      setOnline(msg.online);
+    } else if (msg.type === 'game-state') {
+      const st = msg.state;
+      if (st.name) setName(st.name);
+      if (st.avatarUrl) setAvatar(st.avatarUrl);
+      if (st.online) setOnline(st.online);
+
+      if (!st.connected) {
+        gamePill.textContent = 'juego cerrado';
+        gamePill.className = '';
+      } else if (st.sending) {
+        gamePill.textContent = 'bailando';
+        gamePill.className = 'dance';
+      } else {
+        gamePill.textContent = 'en el menú';
+        gamePill.className = '';
+      }
+    } else if (msg.type === 'ready') {
+      gamePill.textContent = 'listo';
+      gamePill.className = '';
+    } else if (msg.type === 'cmd-rejected' && msg.reason) {
+      roomLine.textContent = msg.reason;
+      roomLine.classList.add('on');
+    } else if (msg.type === 'game') {
+      handleGame(msg.msg);
+    }
+  });
+}
+
+function handleGame(m) {
+  if (!m) return;
+
+  if (m.__class === 'JD_EnableAccelValuesSending_ConsoleCommandData') {
+    setDancing(true);
+    show('pad');
+    return;
+  }
+  if (m.__class === 'JD_DisableAccelValuesSending_ConsoleCommandData') {
+    setDancing(false);
+    return;
+  }
+  if (m.__class === 'JD_ClosePopup_ConsoleCommandData') {
+    show('pad');
+    return;
+  }
+  if (m.__class === 'JD_ProfilePhoneUiData') {
+    setName(m.name);
+    return;
+  }
+  if (m.__class !== 'JD_PhoneUiSetupData') return;
+
+  const sd = m.setupData;
+  if (!sd) return;
+
+  if (m.isPopup === 1 && sd.mainCarousel) {
+    const items = visibleItems(sd.mainCarousel);
+    if (items.length === 1) {
+      renderPopup(items[0]);
+      return;
+    }
+  }
+
+  if (sd.lobbySetup) {
+    setDancing(false);
+    const prof = sd.lobbySetup.changeProfile;
+    if (prof) {
+      setName(prof.title);
+      setLobbyProfile(prof.title, prof.image || prof.icon);
+    } else {
+      setLobbyProfile(playerName, null);
+    }
+    renderCoaches(sd.lobbySetup.coaches || sd.lobbySetup.lobbyData || []);
+    show('lobby');
+    requestAnimationFrame(layoutCoaches);
+    return;
+  }
+
+  if (sd.gameplaySetup) {
+    const img = sd.gameplaySetup.coachImage || sd.gameplaySetup.image;
+    if (img) danceAvatar.src = gameImg(img);
+    setDancing(true);
+    stateBig.textContent = 'BAILA!';
+    show('pad');
+    return;
+  }
+
+  if (sd.recapSetup) {
+    setDancing(false);
+    const recap = sd.recapSetup.recapData || {};
+
+    pendingContinue = null;
+    const cont = visibleItems(sd.mainCarousel).find((i) => /continuar|continue|ok/i.test(i.title || ''));
+    if (cont) pendingContinue = actionOf(cont);
+
+    renderScore(recap.songScore || 0, recap.stars);
+    show('score');
+    return;
+  }
+
+  if (sd.mainCarousel) {
+    setDancing(false);
+    stateBig.textContent = 'MENU';
+    stateBig.classList.remove('on');
+    show('pad');
+    return;
+  }
+
+  if (!dancing) {
+    setDancing(false);
+    stateBig.textContent = 'MENU';
+    show('pad');
+  }
+}
+
+function visibleItems(carousel) {
+  const rows = (carousel && carousel.rows) || [];
+  return rows
+    .flatMap((r) => r.items || [])
+    .filter((i) => i && i.isEnabled !== 0 && i.isLocked !== 1);
+}
+
+function itemImage(it) {
+  return gameImg(it.image || it.icon || '');
+}
+
+function actionOf(it) {
+  const a = (it.actions || [])[0];
+  return a && typeof a.command === 'string' ? a.command : null;
+}
+
+function runItem(it) {
+  const command = actionOf(it);
+  if (!command) return false;
+  send({ type: 'action', command });
+  if (navigator.vibrate) navigator.vibrate(30);
+  return true;
+}
+
+function renderPopup(item) {
+  setDancing(false);
+
+  const img = itemImage(item);
+  const pic = $('popupImg');
+  pic.style.display = img ? 'block' : 'none';
+  if (img) pic.src = img;
+
+  const title = $('popupTitle');
+  title.textContent = '';
+  title.style.display = 'none';
+
+  const card = pic.parentElement;
+  card.style.display = img ? 'flex' : 'none';
+
+  const box = $('popupButtons');
+  box.innerHTML = '';
+
+  const b = document.createElement('button');
+  b.className = 'btn-main';
+  b.textContent = (item.title || 'Continuar').toUpperCase();
+  b.addEventListener('click', () => {
+    runItem(item);
+    show('pad');
+  });
+  box.appendChild(b);
+
+  show('popup');
+}
+
+function setDancing(on) {
+  dancing = on;
+  document.body.classList.toggle('dancing', on);
+  stateBig.classList.toggle('on', on);
+  if (on) stateBig.textContent = 'BAILA!';
+}
+
+function setLobbyProfile(name, image) {
+  const n = String(name || '').trim();
+  const label = n && n.indexOf('[icon:') !== 0 ? n : '';
+  jdName(lobbyName, label);
+  const img = gameImg(image || '');
+  if (img) {
+    if (lobbyAvatar.getAttribute('src') !== img) lobbyAvatar.src = img;
+    lobbyAvatar.style.display = 'block';
+  } else {
+    lobbyAvatar.removeAttribute('src');
+    lobbyAvatar.style.display = 'none';
+  }
+  coachNameplate.classList.toggle('on', !!label);
+}
+
+function selectCoach(i) {
+  if (i === selectedCoach) return;
+  selectedCoach = i;
+  [...coachStage.children].forEach((el, j) => {
+    if (el.classList.contains('coach')) el.classList.toggle('sel', j === i);
+  });
+  if (navigator.vibrate) navigator.vibrate(25);
+  cmd('coach', { index: i });
+}
+
+function measureFigure(img) {
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  if (!nw || !nh) return null;
+
+  const full = { x0: 0, y0: 0, x1: nw, y1: nh, nw, nh };
+
+  try {
+    const k = Math.min(1, 220 / Math.max(nw, nh));
+    const cw = Math.max(1, Math.round(nw * k));
+    const ch = Math.max(1, Math.round(nh * k));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, cw, ch);
+
+    const data = ctx.getImageData(0, 0, cw, ch).data;
+    let x0 = cw, y0 = ch, x1 = -1, y1 = -1;
+
+    for (let y = 0; y < ch; y += 1) {
+      const row = y * cw * 4;
+      for (let x = 0; x < cw; x += 1) {
+        if (data[row + x * 4 + 3] > 8) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+
+    if (x1 < x0 || y1 < y0) return full;
+
+    const inv = 1 / k;
+    return {
+      x0: x0 * inv,
+      y0: y0 * inv,
+      x1: (x1 + 1) * inv,
+      y1: (y1 + 1) * inv,
+      nw,
+      nh,
+    };
+  } catch {
+    return full;
+  }
+}
+
+function placeFigure(img, box, width, height) {
+  const b = box || { x0: 0, y0: 0, x1: img.naturalWidth, y1: img.naturalHeight, nw: img.naturalWidth, nh: img.naturalHeight };
+  const bw = Math.max(1, b.x1 - b.x0);
+  const bh = Math.max(1, b.y1 - b.y0);
+  const s = height / bh;
+
+  img.style.width = Math.round(b.nw * s) + 'px';
+  img.style.height = Math.round(b.nh * s) + 'px';
+  img.style.left = Math.round(width / 2 - ((b.x0 + b.x1) / 2) * s) + 'px';
+  img.style.bottom = Math.round(-(b.nh - b.y1) * s) + 'px';
+}
+
+function layoutCoaches() {
+  const stage = coachStage;
+  const btns = [...stage.querySelectorAll('.coach')];
+  if (!btns.length) return;
+
+  const sw = stage.clientWidth;
+  const sh = stage.clientHeight;
+  if (!sw || !sh) return;
+
+  const imgs = btns.map((b) => b.querySelector('img'));
+  const aspects = imgs.map((img) => {
+    const b = img && img._bbox;
+    if (!b) return 0.5;
+    return Math.max(0.18, (b.x1 - b.x0) / Math.max(1, b.y1 - b.y0));
+  });
+
+  const avail = Math.max(120, sw - 10);
+  const n = btns.length;
+  const scales = btns.map((b) => (b.classList.contains('sel') ? 1.12 : 0.76));
+
+  let h = Math.min(sh * 0.88, 460);
+  let ov = 0;
+
+  for (let pass = 0; pass < 5; pass += 1) {
+    const vis = aspects.map((a, i) => a * h * scales[i]);
+    const total = vis.reduce((s, w) => s + w, 0);
+    const minVis = Math.min(...vis);
+    ov = n > 1 ? Math.min(minVis * 0.16, Math.max(0, (total - avail) / (n - 1))) : 0;
+
+    const used = total - ov * (n - 1);
+    if (used <= avail) break;
+    h *= Math.max(0.6, avail / used);
+  }
+
+  btns.forEach((btn, i) => {
+    const w = aspects[i] * h;
+    btn.style.width = Math.round(w) + 'px';
+    btn.style.height = Math.round(h) + 'px';
+    btn.style.setProperty('--ov', i === 0 ? '0px' : Math.round(ov) + 'px');
+    if (imgs[i]) placeFigure(imgs[i], imgs[i]._bbox, w, h);
+  });
+}
+
+function renderCoaches(list) {
+  const next = Array.isArray(list) ? list : [];
+  const idx = next.findIndex((c) => c && (c.selectedOnEnter === 1 || c.isSelected === 1));
+  coaches = next;
+  if (idx >= 0) selectedCoach = idx;
+  else if (selectedCoach >= coaches.length) selectedCoach = 0;
+
+  const sig = coaches.map((c) => gameImg(c.image || c.imageUrl || c.coachImage)).join('|');
+  $('lobbyCount').textContent = coaches.length ? `${coaches.length} coach${coaches.length === 1 ? '' : 's'}` : '';
+
+  if (coaches.length && sig === coachSig) {
+    [...coachStage.children].forEach((el, j) => {
+      if (el.classList.contains('coach')) el.classList.toggle('sel', j === selectedCoach);
+    });
+    layoutCoaches();
+    return;
+  }
+  coachSig = sig;
+
+  coachStage.innerHTML = '';
+  coachStage.dataset.count = String(Math.min(Math.max(coaches.length, 1), 4));
+
+  if (!coaches.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'El juego no envió coaches todavía';
+    coachStage.appendChild(empty);
+    return;
+  }
+
+  coaches.forEach((c, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'coach' + (i === selectedCoach ? ' sel' : '');
+    btn.setAttribute('aria-label', `Coach ${i + 1}`);
+    btn.setAttribute('aria-pressed', i === selectedCoach ? 'true' : 'false');
+
+    const fig = document.createElement('div');
+    fig.className = 'fig';
+    btn.appendChild(fig);
+
+    const img = gameImg(c.image || c.imageUrl || c.coachImage);
+    if (img) {
+      const el = document.createElement('img');
+      el.src = img;
+      el.alt = '';
+      el.draggable = false;
+      fig.appendChild(el);
+
+      const prepare = () => {
+        const box = measureFigure(el);
+        if (box) el._bbox = box;
+        layoutCoaches();
+      };
+      if (el.complete && el.naturalWidth) prepare();
+      else el.addEventListener('load', prepare, { once: true });
+      el.addEventListener('error', () => el.remove(), { once: true });
+    }
+
+    btn.addEventListener('click', () => selectCoach(i));
+    coachStage.appendChild(btn);
+  });
+
+  requestAnimationFrame(layoutCoaches);
+}
+
+function renderScore(score, realStars) {
+  let stars = typeof realStars === 'number' ? realStars : 0;
+  const color = '#e9e9ef';
+  let rank = 'JUST DANCER';
+
+  if (score >= 12000) { rank = 'MEGASTAR'; }
+  else if (score >= 11000) { rank = 'SUPERSTAR'; }
+  else if (score >= 10000) { stars = Math.max(stars, 5); }
+  else if (score >= 8000) { stars = Math.max(stars, 4); }
+  else if (score >= 6000) { stars = Math.max(stars, 3); }
+  else if (score >= 4000) { stars = Math.max(stars, 2); }
+  else if (score >= 2000) { stars = Math.max(stars, 1); }
+
+  $('scoreVal').textContent = score;
+  $('scoreVal').style.color = color;
+  $('scoreRank').textContent = rank;
+  $('scoreRank').style.color = color;
+  $('scoreRank').style.textShadow = 'none';
+
+  const el = $('scoreStars');
+  el.innerHTML = '';
+  for (let i = 0; i < 5; i += 1) {
+    const s = document.createElement('span');
+    s.textContent = '★';
+    s.style.opacity = i < stars ? '1' : '0.22';
+    el.appendChild(s);
+  }
+  el.style.color = color;
+}
+
+function onMotion(e) {
+  if (!dancing) return;
+  const a = e.accelerationIncludingGravity;
+  if (!a || a.x == null) return;
+
+  const mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+  const delta = Math.min(Math.abs(mag - lastMag), 18);
+  lastMag = mag;
+  moveLevel = moveLevel * 0.82 + (delta / 18) * 0.18;
+
+  const now = performance.now();
+  if (now - lastMovePaint > 60) {
+    lastMovePaint = now;
+    const fill = $('moveFill');
+    if (fill) fill.style.width = Math.round(Math.min(moveLevel * 260, 100)) + '%';
+  }
+
+  if (now - lastAccel < 8) return;
+  lastAccel = now;
+  send({ type: 'accel', v: [a.x || 0, a.y || 0, a.z || 0] });
+}
+
+function send(obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+function cmd(name, payload) {
+  send({ type: 'cmd', name, payload });
+}
+
+$('btnConnect').addEventListener('click', connect);
+codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
+
+$('btnStart').addEventListener('click', async () => {
+  readyErr.textContent = '';
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function') {
+      const res = await DeviceMotionEvent.requestPermission();
+      if (res !== 'granted') {
+        readyErr.textContent = 'Permiso de sensores denegado.';
+        return;
+      }
+    }
+  } catch {
+    readyErr.textContent = 'No se pudo pedir permiso de sensores.';
+  }
+
+  window.addEventListener('devicemotion', onMotion);
+
+  try { await document.documentElement.requestFullscreen(); } catch {}
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+
+  show('pad');
+  setDancing(false);
+  stateBig.textContent = 'MENU';
+
+  let got = false;
+  const probe = (e) => { if (e.accelerationIncludingGravity) got = true; };
+  window.addEventListener('devicemotion', probe);
+  setTimeout(() => {
+    window.removeEventListener('devicemotion', probe);
+    if (!got) {
+      stateBig.textContent = 'SIN SENSORES';
+      stateBig.classList.remove('on');
+    }
+  }, 2000);
+});
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && !wakeLock) {
+    try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (screens.lobby.classList.contains('active')) layoutCoaches();
+});
+
+document.querySelectorAll('[data-cmd]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    if (navigator.vibrate) navigator.vibrate(18);
+    cmd(btn.dataset.cmd);
+  });
+});
+
+$('btnDance').addEventListener('click', () => {
+  if (navigator.vibrate) navigator.vibrate(80);
+  cmd('start');
+});
+$('btnLobbyBack').addEventListener('click', () => cmd('back'));
+$('btnHome').addEventListener('click', goHome);
+$('btnContinue').addEventListener('click', () => {
+  if (pendingContinue) {
+    send({ type: 'action', command: pendingContinue });
+    pendingContinue = null;
+  } else {
+    cmd('ok');
+  }
+});
+
+$('btnPauseMenu').addEventListener('click', () => cmd('pause'));

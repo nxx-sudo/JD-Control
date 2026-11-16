@@ -1,0 +1,19 @@
+# dependencias y binarios
+node_modules/
+runtime/
+cloudflared.exe
+*.exe
+*.pdb
+dist/
+
+# datos de cada PC
+cert/
+logs/
+cache/
+settings.json
+remote.json
+
+# sistema
+Thumbs.db
+desktop.ini
+.DS_Store

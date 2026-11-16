@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#08080a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>JD CONTROL</title>
+<link rel="icon" href="/jd.ico" sizes="any">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+  /* RBNo2.1 Black: la familia que usa Just Dance (version DEMO, misma forma).
+     Solo la variante recta: el corte italico no se usa. */
+  @font-face {
+    font-family: 'RBNo2.1';
+    src: url('/fonts/RBNo2.1-Black.otf') format('opentype');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  :root { --jd-font: 'RBNo2.1', 'Segoe UI', system-ui, sans-serif; }
+  /* La DEMO solo trae glifos ASCII: los nombres con acentos van en Segoe */
+  .jd-fallback {
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    font-weight: 700 !important; letter-spacing: .2px !important;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%; margin: 0; overflow: hidden;
+    background: #08080a;
+    color: #f0f0f4; font-family: 'Segoe UI', system-ui, sans-serif;
+    touch-action: none; user-select: none;
+    /* Suavizado ligero: sin engordar las letras ni emborronar el trazo. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision;
+    font-synthesis: none;
+  }
+  button, input { -webkit-font-smoothing: inherit; text-rendering: inherit; }
+  .screen {
+    position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  .screen.active { display: flex; }
+
+  .brand {
+    font-family: var(--jd-font);
+    font-size: 30px; font-weight: 400; letter-spacing: 1px;
+  }
+  .brand span { color: #8f8f9c; }
+  .sub { margin-top: 6px; font-size: 11px; color: #6f6f7c; letter-spacing: 3px; text-transform: uppercase; }
+
+  input.code {
+    margin-top: 34px;
+    width: min(300px, 100%); padding: 10px 0 14px;
+    background: transparent; border: 0; border-bottom: 1px solid #26262e;
+    color: #f5f5f8; font-size: 40px; font-weight: 700; letter-spacing: 16px;
+    text-align: center; text-indent: 16px; font-family: inherit;
+  }
+  input.code::placeholder { color: #26262e; }
+  input.code:focus { outline: none; border-bottom-color: #5a5a66; }
+
+  button { font-family: inherit; border: 0; background: none; cursor: pointer; font-weight: 800; color: inherit; }
+
+  .btn-main {
+    width: min(300px, 100%); margin-top: 26px; padding: 17px;
+    border-radius: 14px; background: #1b1b21; color: #f2f2f6;
+    font-size: 16px; letter-spacing: 1.5px;
+  }
+  .btn-main:active { background: #26262e; }
+
+  .note { margin-top: 16px; max-width: 300px; font-size: 12px; line-height: 1.6; color: #6c6c78; text-align: center; }
+  .err { margin-top: 12px; min-height: 18px; font-size: 13px; color: #d97b7b; text-align: center; }
+
+  /* --- Controlador --- */
+  #pad { width: 100%; height: 100%; display: flex; flex-direction: column; padding: 14px 18px 22px; }
+
+  .topbar { width: 100%; display: flex; align-items: center; gap: 12px; }
+  .who { flex: 1; text-align: center; line-height: 1.15; min-width: 0; }
+  /* El avatar no desplaza el nombre: columna propia y hueco espejo al otro lado */
+  .who-row {
+    display: grid; grid-template-columns: 24px minmax(0, 1fr) 24px;
+    align-items: center; column-gap: 4px;
+  }
+  #playerAvatar {
+    grid-column: 1; justify-self: start;
+    width: 24px; height: 24px; border-radius: 50%;
+    object-fit: cover; display: none; background: #1b1b21;
+  }
+  #connName {
+    grid-column: 2; text-align: center;
+    font-family: var(--jd-font);
+    font-size: 15px; font-weight: 400;
+    letter-spacing: .6px; color: #f0f0f4;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #gamePill { margin-top: 3px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #6f6f7c; }
+  #gamePill.dance { color: #d8d8df; }
+
+  .room-line {
+    width: 100%; min-height: 13px; margin-top: 4px;
+    font-size: 9px; letter-spacing: 1.4px; text-transform: uppercase;
+    text-align: center; color: #5f5f6b;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .room-line.on { color: #a8a8b5; }
+
+  .icon-btn {
+    width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #9a9aa6;
+  }
+  .icon-btn svg { width: 22px; height: 22px; }
+  .icon-btn:active { color: #fff; }
+
+  .pad-main {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  }
+
+  .state-big {
+    font-family: var(--jd-font);
+    font-size: 18px; font-weight: 400; letter-spacing: 3px;
+    color: #4c4c56; text-align: center;
+  }
+  .state-big.on { color: #ededf2; }
+
+  /* D-pad limpio: sin caja ni borde, solo los simbolos */
+  .grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+    width: min(76vw, 300px); height: min(76vw, 300px);
+  }
+  .grid button {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; font-weight: 700; color: #a8a8b4; border-radius: 50%;
+    background: transparent;
+  }
+  .grid button:active { color: #fff; text-shadow: 0 0 22px rgba(255,255,255,.55); }
+  .grid .ok { font-size: 17px; letter-spacing: 2px; color: #e6e6ec; }
+
+  .pad-actions { display: flex; align-items: center; justify-content: center; gap: 34px; }
+  .pad-actions .icon-btn { width: 52px; height: 52px; flex-basis: 52px; }
+  .pad-actions svg { width: 24px; height: 24px; }
+
+  .dance-only { display: none; }
+  body.dancing .dance-only { display: flex; }
+  body.dancing .menu-only { display: none !important; }
+
+  /* Durante el baile: coach pequeño y barra de movimiento a la izquierda */
+  .dance-head {
+    width: 100%; display: flex; align-items: center;
+    gap: 12px; padding: 0 2px;
+  }
+  #moveWrap {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  }
+  .move-label { font-size: 8px; letter-spacing: 3px; color: #4e4e5a; }
+  .move-bar {
+    width: 100%; max-width: 190px; height: 8px;
+    border-radius: 999px; overflow: hidden; background: #17171c;
+  }
+  #moveFill { height: 100%; width: 0%; background: #d9d9df; transition: width .08s linear; }
+  #danceAvatar { width: 64px; height: 64px; object-fit: contain; flex: 0 0 64px; }
+
+  /* --- Pantallas del juego --- */
+  .flat {
+    width: 100%; max-width: 380px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+  .game-head {
+    width: 100%; display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; letter-spacing: 2px; color: #6f6f7c; text-transform: uppercase;
+  }
+  .game-title {
+    margin: 0; font-family: var(--jd-font);
+    font-size: clamp(17px, 5.4vw, 22px); font-weight: 400;
+    letter-spacing: .8px; text-align: center; color: #eaeaef;
+  }
+
+  /* --- Selección de coach: personajes de pie, sin marco --- */
+  #scr-lobby { padding: 16px 16px 20px; gap: 10px; }
+  .lobby-head { width: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
+  .lobby-count {
+    position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+    font-size: 9px; letter-spacing: 1.6px; text-transform: uppercase; color: #5f5f6b;
+  }
+
+  /* Pista de personajes: sin cajas, figuras de pie sobre el fondo */
+  .lobby-body {
+    flex: 1; min-height: 0; width: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  }
+  .coach-stage {
+    flex: 1; min-height: 0; width: 100%;
+    position: relative;
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+
+  /* Cada personaje es un boton invisible del tamaño exacto de su figura.
+     El juego manda PNGs con margenes transparentes: mobile.js mide el
+     recorte real y escala la imagen para que la figura ocupe toda la altura. */
+  .coach {
+    --dy: 0px;
+    --ov: 0px;
+    position: relative; flex: 0 0 auto;
+    width: 90px; height: 70%;
+    margin: 0 0 0 calc(var(--ov) * -1); padding: 0;
+    border: 0; background: none; cursor: pointer;
+    transform-origin: 50% 100%;
+    transform: translateY(var(--dy)) scale(.76);
+    filter: grayscale(.62) brightness(.7) saturate(.6);
+    opacity: .85;
+    transition: transform .42s cubic-bezier(.22,.9,.3,1), filter .42s ease, opacity .42s ease;
+    z-index: 1;
+  }
+  .coach:nth-child(odd) { --dy: -12px; }
+  .coach.sel {
+    --dy: -22px;
+    transform: translateY(var(--dy)) scale(1.12);
+    filter: none; opacity: 1; z-index: 3;
+  }
+
+  .fig {
+    position: absolute; inset: 0;
+    transform-origin: 50% 100%;
+    will-change: transform;
+  }
+  .coach img {
+    position: absolute; display: block; max-width: none;
+    pointer-events: none; -webkit-user-drag: none;
+  }
+
+  /* Sombra plana en el suelo (sin degradados) */
+  .coach::after {
+    content: ''; position: absolute; left: 20%; right: 20%; bottom: -5px; height: 8px;
+    border-radius: 50%; background: rgba(0, 0, 0, .5);
+    z-index: 0; opacity: 0; transition: opacity .3s ease;
+  }
+  .coach.sel::after { opacity: 1; }
+
+  .coach-stage .empty { font-size: 13px; color: #6a6a76; text-align: center; align-self: center; }
+
+  /* Placa con el nombre del jugador (como en el juego) */
+  .nameplate {
+    display: flex; align-items: center; gap: 8px; max-width: 92%; margin-top: 18px;
+    padding: 5px 18px 5px 6px;
+    background: #14141a;
+    border: 1px solid #2b2b34; border-radius: 999px;
+    transform: skewX(-9deg);
+    opacity: 0; transition: opacity .3s ease;
+  }
+  .nameplate.on { opacity: 1; }
+  .nameplate > * { transform: skewX(9deg); }
+  #lobbyAvatar {
+    width: 26px; height: 26px; border-radius: 50%; object-fit: cover;
+    flex: 0 0 26px; background: #1b1b21; display: none;
+  }
+  #lobbyName {
+    font-family: var(--jd-font);
+    font-size: 16px; font-weight: 400; letter-spacing: .7px;
+    color: #f4f4f7; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  #lobbyBtns { width: 100%; max-width: 420px; display: flex; gap: 10px; }
+  #lobbyBtns button { margin: 0; }
+  #btnLobbyBack {
+    flex: 0 0 34%; padding: 16px; border-radius: 14px;
+    background: transparent; color: #b6b6c0; font-size: 13px; letter-spacing: 1px;
+  }
+  #btnLobbyBack:active { color: #fff; }
+  #btnDance { flex: 1; padding: 16px; font-family: var(--jd-font); font-weight: 400; letter-spacing: 1.2px; }
+
+  #scoreVal { font-size: 56px; font-weight: 900; font-variant-numeric: tabular-nums; }
+  #scoreStars { font-size: 28px; letter-spacing: 4px; }
+  #scoreRank { font-family: var(--jd-font); font-size: 20px; font-weight: 400; letter-spacing: 2px; }
+
+  /* Visibilidad por modo (al final para ganar a las reglas de cada bloque) */
+  body:not(.dancing) .dance-only { display: none !important; }
+  body.dancing .dance-only { display: flex; }
+  body.dancing .menu-only { display: none !important; }
+</style>
+</head>
+<body>
+
+  <div id="scr-code" class="screen active">
+    <div class="brand">JD <span>CONTROL</span></div>
+    <div class="sub">Controlador</div>
+    <input id="codeInput" class="code" inputmode="numeric" maxlength="5" placeholder="00000" autocomplete="off">
+    <button id="btnConnect" class="btn-main">CONECTAR</button>
+    <div id="codeErr" class="err"></div>
+    <div class="note">Pide el código de 5 dígitos que aparece en el PC.</div>
+  </div>
+
+  <div id="scr-ready" class="screen">
+    <div class="brand">LISTO</div>
+    <div class="sub">Paso final</div>
+    <div class="note">Para puntuar necesito el acelerómetro del móvil. Pulsa el botón y
+      mantén el teléfono en la mano como en el juego.</div>
+    <button id="btnStart" class="btn-main">ACTIVAR SENSORES</button>
+    <div id="readyErr" class="err"></div>
+  </div>
+
+  <div id="scr-pad" class="screen">
+    <div id="pad">
+      <div class="topbar">
+        <button id="btnHome" class="icon-btn" aria-label="Cambiar de sala" title="Cambiar de sala">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/>
+          </svg>
+        </button>
+        <div class="who">
+          <div class="who-row">
+            <img id="playerAvatar" alt="">
+            <div id="connName">conectando...</div>
+          </div>
+          <div id="gamePill">juego…</div>
+        </div>
+        <div style="width:44px; flex:0 0 44px"></div>
+      </div>
+
+      <div id="roomLine" class="room-line"></div>
+
+      <div class="pad-main">
+        <div class="dance-head dance-only">
+          <div id="moveWrap">
+            <div class="move-label">MOVIMIENTO</div>
+            <div class="move-bar"><div id="moveFill"></div></div>
+          </div>
+          <img id="danceAvatar" alt="">
+        </div>
+
+        <div id="stateBig" class="state-big">MENU</div>
+
+        <div class="grid">
+          <div></div>
+          <button data-cmd="up" aria-label="Arriba">▲</button>
+          <div></div>
+          <button data-cmd="left" aria-label="Izquierda">◀</button>
+          <button data-cmd="ok" class="ok">OK</button>
+          <button data-cmd="right" aria-label="Derecha">▶</button>
+          <div></div>
+          <button data-cmd="down" aria-label="Abajo">▼</button>
+          <div></div>
+        </div>
+
+        <div class="pad-actions">
+          <button id="btnBack" class="icon-btn" data-cmd="back" aria-label="Atrás" title="Atrás">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 5 8 12l7 7"/>
+            </svg>
+          </button>
+          <button id="btnPauseMenu" class="icon-btn" aria-label="Pausa" title="Pausa">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <rect x="7" y="5" width="3.6" height="14" rx="1"/><rect x="13.4" y="5" width="3.6" height="14" rx="1"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="scr-lobby" class="screen">
+    <div class="lobby-head">
+      <div class="game-title">ELIGE TU COACH</div>
+      <span id="lobbyCount" class="lobby-count"></span>
+    </div>
+    <div class="lobby-body">
+      <div id="coachStage" class="coach-stage" data-count="1"></div>
+      <div id="coachNameplate" class="nameplate">
+        <img id="lobbyAvatar" alt="">
+        <span id="lobbyName"></span>
+      </div>
+    </div>
+    <div id="lobbyBtns">
+      <button id="btnLobbyBack">ATRÁS</button>
+      <button id="btnDance" class="btn-main">BAILAR!</button>
+    </div>
+  </div>
+
+  <div id="scr-score" class="screen">
+    <div class="flat">
+      <div id="scoreRank">JUST DANCER</div>
+      <div id="scoreStars">☆☆☆☆☆</div>
+      <div id="scoreVal">0</div>
+    </div>
+    <button id="btnContinue" class="btn-main">CONTINUAR</button>
+  </div>
+
+  <div id="scr-popup" class="screen">
+    <div class="flat" id="popupCard">
+      <img id="popupImg" alt="" style="max-width:100%; max-height:220px; object-fit:contain;">
+      <div id="popupTitle" class="game-title"></div>
+    </div>
+    <div id="popupButtons" style="width:100%; max-width:300px; display:flex; flex-direction:column; gap:8px;"></div>
+  </div>
+
+  <script src="mobile.js"></script>
+</body>
+</html>
