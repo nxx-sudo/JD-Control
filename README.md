@@ -74,13 +74,13 @@ To build from source you do need .NET Framework 4.x (`csc.exe`) and Node.js 18+.
 
 ### 1. Open the room
 
-<img src="docs/panel-closed.png" width="320">
+<img src="docs/step-open-server.png" width="320">
 
 Press **Open server**. The panel switches to `room created: online active` (in green) and shows the code and the QR.
 
 ### 2. Connect your phone
 
-<img src="docs/mobile-code.png" width="240">
+<img src="docs/step-connect.png" width="240"> <img src="docs/step-enable-sensors.png" width="240">
 
 Scan the QR with the phone camera or open the link. Type the 5-digit code, press **CONNECT** and then **ENABLE SENSORS**. The phone page follows the phone language (English, Spanish or Portuguese). The accelerometer only works over HTTPS, and the tunnel link already is.
 
@@ -94,7 +94,7 @@ Press **Close server**: the room closes, the tunnel stops and the phones disconn
 
 ### 5. Join a room from another PC
 
-<img src="docs/panel-join.png" width="320">
+<img src="docs/step-join.png" width="320">
 
 On the other PC: **Join room** → type the host IP (`192.168.1.20`) **or** its tunnel URL (`https://something.trycloudflare.com`) and the code.
 
