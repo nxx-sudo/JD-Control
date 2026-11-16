@@ -46,6 +46,179 @@ const remoteMode = document.documentElement.dataset.remote === '1';
 const params = new URLSearchParams(location.search);
 if (params.get('code')) codeInput.value = params.get('code');
 
+const I18N = {
+  en: {
+    codeNote: 'Type the 5-digit code shown on the PC.',
+    btnConnect: 'CONNECT',
+    brandReady: 'READY',
+    readyNote: 'To score I need the phone accelerometer. Tap the button and keep the phone in your hand like in the game.',
+    btnStart: 'ENABLE SENSORS',
+    connecting: 'connecting...',
+    gameLoading: 'game...',
+    connected: 'connected',
+    gameClosed: 'game closed',
+    dancing: 'dancing',
+    gameMenu: 'in the menu',
+    ready: 'ready',
+    movement: 'MOVEMENT',
+    menu: 'MENU',
+    danceDo: 'DANCE!',
+    dance: 'DANCE!',
+    danceReady: 'I AM READY',
+    danceCancelReady: 'CANCEL READY',
+    pickCoach: 'PICK YOUR COACH',
+    back: 'BACK',
+    pcontinue: 'CONTINUE',
+    noSensors: 'NO SENSORS',
+    roomTag: 'ROOM {code}',
+    roomOnline: 'ONLINE ROOM',
+    host: 'HOST',
+    tagConnecting: 'CONNECTING',
+    admin: 'ADMIN',
+    inRoom: 'IN ROOM',
+    readyCount: 'Ready {a}/{b}',
+    errCode5: 'The code has 5 digits.',
+    errSearching: 'Looking for the PC on your network...',
+    errRetry: 'Connecting to the server... ({n}/3)',
+    errLost: 'Connection lost. Join again.',
+    errConnecting: 'Connecting to the server...',
+    errNoConn: 'Could not connect. Check the code and the network.',
+    errNoRoom: 'That code is not active. Open the room on the PC.',
+    errRemote: 'The PC is not connected to the remote server.',
+    coachesEmpty: 'The game has not sent the coaches yet',
+    sensorDenied: 'Sensor permission denied.',
+    sensorAskFail: 'Could not ask for sensor permission.',
+    ariaUp: 'Up', ariaLeft: 'Left', ariaRight: 'Right', ariaDown: 'Down',
+    ariaBack: 'Back', ariaPause: 'Pause', ariaSwitchRoom: 'Switch room',
+  },
+  es: {
+    codeNote: 'Pide el código de 5 dígitos que aparece en el PC.',
+    btnConnect: 'CONECTAR',
+    brandReady: 'LISTO',
+    readyNote: 'Para puntuar necesito el acelerómetro del móvil. Pulsa el botón y mantén el teléfono en la mano como en el juego.',
+    btnStart: 'ACTIVAR SENSORES',
+    connecting: 'conectando...',
+    gameLoading: 'juego...',
+    connected: 'conectado',
+    gameClosed: 'juego cerrado',
+    dancing: 'bailando',
+    gameMenu: 'en el menú',
+    ready: 'listo',
+    movement: 'MOVIMIENTO',
+    menu: 'MENU',
+    danceDo: 'BAILA!',
+    dance: 'BAILAR!',
+    danceReady: 'ESTOY LISTO',
+    danceCancelReady: 'CANCELAR LISTO',
+    pickCoach: 'ELIGE TU COACH',
+    back: 'ATRÁS',
+    pcontinue: 'CONTINUAR',
+    noSensors: 'SIN SENSORES',
+    roomTag: 'SALA {code}',
+    roomOnline: 'SALA ONLINE',
+    host: 'ANFITRION',
+    tagConnecting: 'CONECTANDO',
+    admin: 'ADMIN',
+    inRoom: 'EN SALA',
+    readyCount: 'Listos {a}/{b}',
+    errCode5: 'El código tiene 5 dígitos.',
+    errSearching: 'Buscando el PC en la red...',
+    errRetry: 'Conectando con el servidor... ({n}/3)',
+    errLost: 'Se perdió la conexión. Vuelve a entrar.',
+    errConnecting: 'Conectando con el servidor...',
+    errNoConn: 'No se pudo conectar. Revisa el código y la red.',
+    errNoRoom: 'Ese código no está activo. Abre la sala en el PC.',
+    errRemote: 'El PC no está conectado al servidor remoto.',
+    coachesEmpty: 'El juego no envió coaches todavía',
+    sensorDenied: 'Permiso de sensores denegado.',
+    sensorAskFail: 'No se pudo pedir permiso de sensores.',
+    ariaUp: 'Arriba', ariaLeft: 'Izquierda', ariaRight: 'Derecha', ariaDown: 'Abajo',
+    ariaBack: 'Atrás', ariaPause: 'Pausa', ariaSwitchRoom: 'Cambiar de sala',
+  },
+  pt: {
+    codeNote: 'Digite o código de 5 dígitos que aparece no PC.',
+    btnConnect: 'CONECTAR',
+    brandReady: 'PRONTO',
+    readyNote: 'Para pontuar preciso do acelerômetro do celular. Toque no botão e mantenha o telefone na mão como no jogo.',
+    btnStart: 'ATIVAR SENSORES',
+    connecting: 'conectando...',
+    gameLoading: 'jogo...',
+    connected: 'conectado',
+    gameClosed: 'jogo fechado',
+    dancing: 'dançando',
+    gameMenu: 'no menu',
+    ready: 'pronto',
+    movement: 'MOVIMENTO',
+    menu: 'MENU',
+    danceDo: 'DANCE!',
+    dance: 'DANCE!',
+    danceReady: 'ESTOU PRONTO',
+    danceCancelReady: 'CANCELAR PRONTO',
+    pickCoach: 'ESCOLHA SEU COACH',
+    back: 'VOLTAR',
+    pcontinue: 'CONTINUAR',
+    noSensors: 'SEM SENSORES',
+    roomTag: 'SALA {code}',
+    roomOnline: 'SALA ONLINE',
+    host: 'ANFITRIÃO',
+    tagConnecting: 'CONECTANDO',
+    admin: 'ADMIN',
+    inRoom: 'NA SALA',
+    readyCount: 'Prontos {a}/{b}',
+    errCode5: 'O código tem 5 dígitos.',
+    errSearching: 'Procurando o PC na rede...',
+    errRetry: 'Conectando ao servidor... ({n}/3)',
+    errLost: 'Conexão perdida. Entre de novo.',
+    errConnecting: 'Conectando ao servidor...',
+    errNoConn: 'Não foi possível conectar. Confira o código e a rede.',
+    errNoRoom: 'Esse código não está ativo. Abra a sala no PC.',
+    errRemote: 'O PC não está conectado ao servidor remoto.',
+    coachesEmpty: 'O jogo ainda não enviou os coaches',
+    sensorDenied: 'Permissão dos sensores negada.',
+    sensorAskFail: 'Não foi possível pedir permissão dos sensores.',
+    ariaUp: 'Cima', ariaLeft: 'Esquerda', ariaRight: 'Direita', ariaDown: 'Baixo',
+    ariaBack: 'Voltar', ariaPause: 'Pausa', ariaSwitchRoom: 'Trocar de sala',
+  },
+};
+
+function pickLang() {
+  const asked = String(params.get('lang') || '').toLowerCase();
+  const sys = (navigator.languages && navigator.languages[0]) || navigator.language || 'en';
+  const tag = asked || sys;
+  if (tag.indexOf('pt') === 0) return 'pt';
+  if (tag.indexOf('es') === 0) return 'es';
+  if (tag.indexOf('en') === 0) return 'en';
+  return 'en';
+}
+
+const LANG = pickLang();
+const TEXT = I18N[LANG] || I18N.en;
+
+function t(key, vars) {
+  let s = TEXT[key];
+  if (s == null) s = I18N.en[key];
+  if (s == null) return key;
+  if (vars) {
+    Object.keys(vars).forEach((k) => { s = s.split('{' + k + '}').join(String(vars[k])); });
+  }
+  return s;
+}
+
+function applyStatic() {
+  document.documentElement.lang = LANG;
+  document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
+  document.querySelectorAll('[data-tt]').forEach((el) => {
+    const v = t(el.dataset.tt);
+    el.setAttribute('title', v);
+    el.setAttribute('aria-label', v);
+  });
+  connName.textContent = t('connecting');
+  gamePill.textContent = t('gameLoading');
+  stateBig.textContent = t('menu');
+}
+
+applyStatic();
+
 function show(name) {
   Object.entries(screens).forEach(([key, el]) => el.classList.toggle('active', key === name));
 }
@@ -80,23 +253,23 @@ function setAvatar(url) {
 
 function setOnline(on) {
   $('btnDance').textContent = on && on.requiresReady
-    ? (on.localReady ? 'CANCELAR LISTO' : 'ESTOY LISTO')
-    : 'BAILAR!';
+    ? t(on.localReady ? 'danceCancelReady' : 'danceReady')
+    : t('dance');
   if (!on || !on.role) {
     roomLine.textContent = '';
     roomLine.classList.remove('on');
     return;
   }
 
-  let text = on.code ? `SALA ${on.code}` : 'SALA ONLINE';
-  if (on.role === 'host') text += ' · ANFITRIÓN';
-  else if (!on.connected) text += ' · CONECTANDO';
-  else text += on.admin ? ' · ADMIN' : ' · EN SALA';
+  let text = on.code ? t('roomTag', { code: on.code }) : t('roomOnline');
+  if (on.role === 'host') text += ' · ' + t('host');
+  else if (!on.connected) text += ' · ' + t('tagConnecting');
+  else text += ' · ' + (on.admin ? t('admin') : t('inRoom'));
 
   if (on.hint) text += ` · ${on.hint}`;
   else if (on.role === 'member' && on.targetSong) text += ` · ${on.targetSong}`;
   if (on.localReady && on.totalCount)
-    text += ` · Listos ${on.readyCount}/${on.totalCount}`;
+    text += ' · ' + t('readyCount', { a: on.readyCount, b: on.totalCount });
 
   roomLine.textContent = text;
   roomLine.classList.add('on');
@@ -112,7 +285,7 @@ function goHome() {
 
   playerName = '';
   roomCode = '';
-  connName.textContent = 'conectando...';
+  connName.textContent = t('connecting');
   connName.classList.remove('jd-fallback');
   playerAvatar.removeAttribute('src');
   playerAvatar.style.display = 'none';
@@ -121,11 +294,11 @@ function goHome() {
   lobbyAvatar.style.display = 'none';
   coachNameplate.classList.remove('on');
   coachStage.innerHTML = '';
-  gamePill.textContent = 'juego…';
+  gamePill.textContent = t('gameLoading');
   gamePill.className = '';
   roomLine.textContent = '';
   roomLine.classList.remove('on');
-  $('btnDance').textContent = 'BAILAR!';
+  $('btnDance').textContent = t('dance');
   coaches = [];
   coachSig = '';
   selectedCoach = 0;
@@ -195,7 +368,7 @@ function probeDirect() {
 async function connect() {
   const code = codeInput.value.replace(/\D/g, '');
   if (code.length !== 5) {
-    codeErr.textContent = 'El código tiene 5 dígitos.';
+    codeErr.textContent = t('errCode5');
     return;
   }
   if (connecting || retrying || ws) return;
@@ -206,7 +379,7 @@ async function connect() {
 
   let socket = null;
   if (remoteMode) {
-    codeErr.textContent = 'Buscando el PC en la red…';
+    codeErr.textContent = t('errSearching');
     const hit = await probeDirect();
 
     if (hit) {
@@ -248,7 +421,7 @@ function attachSocket(socket, attempt) {
 
     if (!opened && remoteMode && !socket.jdNoRetry && attempt < 2) {
       retrying = true;
-      codeErr.textContent = `Conectando con el servidor… (${attempt + 2}/3)`;
+      codeErr.textContent = t('errRetry', { n: attempt + 2 });
       setTimeout(() => {
         retrying = false;
         if (!ws) startRelay(attempt + 1);
@@ -261,16 +434,14 @@ function attachSocket(socket, attempt) {
       setTimeout(() => {
         if (ws) return;
         show('code');
-        codeErr.textContent = 'Se perdió la conexión. Vuelve a entrar.';
+        codeErr.textContent = t('errLost');
       }, 800);
     }
   });
 
   socket.addEventListener('error', () => {
     if (!opened) {
-      codeErr.textContent = remoteMode
-        ? 'Conectando con el servidor…'
-        : 'No se pudo conectar. Revisa el código y la red.';
+      codeErr.textContent = remoteMode ? t('errConnecting') : t('errNoConn');
     }
   });
 
@@ -280,11 +451,9 @@ function attachSocket(socket, attempt) {
 
     if (msg.type === 'error') {
       socket.jdNoRetry = true;
-      codeErr.textContent = msg.error === 'no-room'
-        ? 'Ese código no está activo. Abre la sala en el PC.'
-        : 'El PC no está conectado al servidor remoto.';
+      codeErr.textContent = msg.error === 'no-room' ? t('errNoRoom') : t('errRemote');
     } else if (msg.type === 'joined') {
-      if (!playerName) connName.textContent = 'conectado';
+      if (!playerName) connName.textContent = t('connected');
     } else if (msg.type === 'online') {
       setOnline(msg.online);
     } else if (msg.type === 'game-state') {
@@ -294,17 +463,17 @@ function attachSocket(socket, attempt) {
       if (st.online) setOnline(st.online);
 
       if (!st.connected) {
-        gamePill.textContent = 'juego cerrado';
+        gamePill.textContent = t('gameClosed');
         gamePill.className = '';
       } else if (st.sending) {
-        gamePill.textContent = 'bailando';
+        gamePill.textContent = t('dancing');
         gamePill.className = 'dance';
       } else {
-        gamePill.textContent = 'en el menú';
+        gamePill.textContent = t('gameMenu');
         gamePill.className = '';
       }
     } else if (msg.type === 'ready') {
-      gamePill.textContent = 'listo';
+      gamePill.textContent = t('ready');
       gamePill.className = '';
     } else if (msg.type === 'cmd-rejected' && msg.reason) {
       roomLine.textContent = msg.reason;
@@ -367,7 +536,7 @@ function handleGame(m) {
     const img = sd.gameplaySetup.coachImage || sd.gameplaySetup.image;
     if (img) danceAvatar.src = gameImg(img);
     setDancing(true);
-    stateBig.textContent = 'BAILA!';
+    stateBig.textContent = t('danceDo');
     show('pad');
     return;
   }
@@ -387,7 +556,7 @@ function handleGame(m) {
 
   if (sd.mainCarousel) {
     setDancing(false);
-    stateBig.textContent = 'MENU';
+    stateBig.textContent = t('menu');
     stateBig.classList.remove('on');
     show('pad');
     return;
@@ -395,7 +564,7 @@ function handleGame(m) {
 
   if (!dancing) {
     setDancing(false);
-    stateBig.textContent = 'MENU';
+    stateBig.textContent = t('menu');
     show('pad');
   }
 }
@@ -444,7 +613,7 @@ function renderPopup(item) {
 
   const b = document.createElement('button');
   b.className = 'btn-main';
-  b.textContent = (item.title || 'Continuar').toUpperCase();
+  b.textContent = (item.title || t('pcontinue')).toUpperCase();
   b.addEventListener('click', () => {
     runItem(item);
     show('pad');
@@ -458,7 +627,7 @@ function setDancing(on) {
   dancing = on;
   document.body.classList.toggle('dancing', on);
   stateBig.classList.toggle('on', on);
-  if (on) stateBig.textContent = 'BAILA!';
+  if (on) stateBig.textContent = t('danceDo');
 }
 
 function setLobbyProfile(name, image) {
@@ -615,7 +784,7 @@ function renderCoaches(list) {
   if (!coaches.length) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'El juego no envió coaches todavía';
+    empty.textContent = t('coachesEmpty');
     coachStage.appendChild(empty);
     return;
   }
@@ -726,12 +895,12 @@ $('btnStart').addEventListener('click', async () => {
         typeof DeviceMotionEvent.requestPermission === 'function') {
       const res = await DeviceMotionEvent.requestPermission();
       if (res !== 'granted') {
-        readyErr.textContent = 'Permiso de sensores denegado.';
+        readyErr.textContent = t('sensorDenied');
         return;
       }
     }
   } catch {
-    readyErr.textContent = 'No se pudo pedir permiso de sensores.';
+    readyErr.textContent = t('sensorAskFail');
   }
 
   window.addEventListener('devicemotion', onMotion);
@@ -741,7 +910,7 @@ $('btnStart').addEventListener('click', async () => {
 
   show('pad');
   setDancing(false);
-  stateBig.textContent = 'MENU';
+  stateBig.textContent = t('menu');
 
   let got = false;
   const probe = (e) => { if (e.accelerationIncludingGravity) got = true; };
@@ -749,7 +918,7 @@ $('btnStart').addEventListener('click', async () => {
   setTimeout(() => {
     window.removeEventListener('devicemotion', probe);
     if (!got) {
-      stateBig.textContent = 'SIN SENSORES';
+      stateBig.textContent = t('noSensors');
       stateBig.classList.remove('on');
     }
   }, 2000);

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -288,23 +288,23 @@
   <div id="scr-code" class="screen active">
     <div class="brand">JD <span>CONTROL</span></div>
     <input id="codeInput" class="code" inputmode="numeric" maxlength="5" placeholder="00000" autocomplete="off">
-    <button id="btnConnect" class="btn-main">CONECTAR</button>
+    <button id="btnConnect" class="btn-main" data-t="btnConnect">CONNECT</button>
     <div id="codeErr" class="err"></div>
-    <div class="note">Pide el código de 5 dígitos que aparece en el PC.</div>
+    <div class="note" data-t="codeNote">Type the 5-digit code shown on the PC.</div>
   </div>
 
   <div id="scr-ready" class="screen">
-    <div class="brand">LISTO</div>
-    <div class="note">Para puntuar necesito el acelerómetro del móvil. Pulsa el botón y
-      mantén el teléfono en la mano como en el juego.</div>
-    <button id="btnStart" class="btn-main">ACTIVAR SENSORES</button>
+    <div class="brand" data-t="brandReady">READY</div>
+    <div class="note" data-t="readyNote">To score I need the phone accelerometer. Tap the
+      button and keep the phone in your hand like in the game.</div>
+    <button id="btnStart" class="btn-main" data-t="btnStart">ENABLE SENSORS</button>
     <div id="readyErr" class="err"></div>
   </div>
 
   <div id="scr-pad" class="screen">
     <div id="pad">
       <div class="topbar">
-        <button id="btnHome" class="icon-btn" aria-label="Cambiar de sala" title="Cambiar de sala">
+        <button id="btnHome" class="icon-btn" data-tt="ariaSwitchRoom" aria-label="Switch room" title="Switch room">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/>
           </svg>
@@ -312,9 +312,9 @@
         <div class="who">
           <div class="who-row">
             <img id="playerAvatar" alt="">
-            <div id="connName">conectando...</div>
+            <div id="connName">connecting...</div>
           </div>
-          <div id="gamePill">juego…</div>
+          <div id="gamePill">game...</div>
         </div>
         <div style="width:44px; flex:0 0 44px"></div>
       </div>
@@ -324,7 +324,7 @@
       <div class="pad-main">
         <div class="dance-head dance-only">
           <div id="moveWrap">
-            <div class="move-label">MOVIMIENTO</div>
+            <div class="move-label" data-t="movement">MOVEMENT</div>
             <div class="move-bar"><div id="moveFill"></div></div>
           </div>
           <img id="danceAvatar" alt="">
@@ -334,23 +334,23 @@
 
         <div class="grid">
           <div></div>
-          <button data-cmd="up" aria-label="Arriba">▲</button>
+          <button data-cmd="up" data-tt="ariaUp" aria-label="Up">▲</button>
           <div></div>
-          <button data-cmd="left" aria-label="Izquierda">◀</button>
+          <button data-cmd="left" data-tt="ariaLeft" aria-label="Left">◀</button>
           <button data-cmd="ok" class="ok">OK</button>
-          <button data-cmd="right" aria-label="Derecha">▶</button>
+          <button data-cmd="right" data-tt="ariaRight" aria-label="Right">▶</button>
           <div></div>
-          <button data-cmd="down" aria-label="Abajo">▼</button>
+          <button data-cmd="down" data-tt="ariaDown" aria-label="Down">▼</button>
           <div></div>
         </div>
 
         <div class="pad-actions">
-          <button id="btnBack" class="icon-btn" data-cmd="back" aria-label="Atrás" title="Atrás">
+          <button id="btnBack" class="icon-btn" data-cmd="back" data-tt="ariaBack" aria-label="Back" title="Back">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
               <path d="M15 5 8 12l7 7"/>
             </svg>
           </button>
-          <button id="btnPauseMenu" class="icon-btn" aria-label="Pausa" title="Pausa">
+          <button id="btnPauseMenu" class="icon-btn" data-tt="ariaPause" aria-label="Pause" title="Pause">
             <svg viewBox="0 0 24 24" fill="currentColor">
               <rect x="7" y="5" width="3.6" height="14" rx="1"/><rect x="13.4" y="5" width="3.6" height="14" rx="1"/>
             </svg>
@@ -362,7 +362,7 @@
 
   <div id="scr-lobby" class="screen">
     <div class="lobby-head">
-      <div class="game-title">ELIGE TU COACH</div>
+      <div class="game-title" data-t="pickCoach">PICK YOUR COACH</div>
       <span id="lobbyCount" class="lobby-count"></span>
     </div>
     <div class="lobby-body">
@@ -373,8 +373,8 @@
       </div>
     </div>
     <div id="lobbyBtns">
-      <button id="btnLobbyBack">ATRÁS</button>
-      <button id="btnDance" class="btn-main">BAILAR!</button>
+      <button id="btnLobbyBack" data-t="back">BACK</button>
+      <button id="btnDance" class="btn-main" data-t="dance">DANCE!</button>
     </div>
   </div>
 
@@ -384,7 +384,7 @@
       <div id="scoreStars">☆☆☆☆☆</div>
       <div id="scoreVal">0</div>
     </div>
-    <button id="btnContinue" class="btn-main">CONTINUAR</button>
+    <button id="btnContinue" class="btn-main" data-t="pcontinue">CONTINUE</button>
   </div>
 
   <div id="scr-popup" class="screen">

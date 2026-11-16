@@ -20,7 +20,7 @@ JD CONTROL is a desktop mod that opens a **local room** on your PC and turns pho
 - **Several phones** at once, each one with its own player.
 - **Room across PCs**: one PC hosts the room and the others join with the code.
 - **Any network**: a `cloudflared` tunnel publishes your PC over HTTPS, so a phone on mobile data connects without opening ports.
-- **3 languages**: English, Español and Portuguese (Brazil).
+- **3 languages**: English, Español and Portuguese (Brazil), on the panel and on the phone.
 
 ## Screenshots
 
@@ -82,7 +82,7 @@ Press **Open server**. The panel switches to `room created: online active` (in g
 
 <img src="docs/mobile-code.png" width="240">
 
-Scan the QR with the phone camera or open the link. Type the 5-digit code, press **CONECTAR** and then **ACTIVAR SENSORES** (the phone page is in Spanish for now). The accelerometer only works over HTTPS, and the tunnel link already is.
+Scan the QR with the phone camera or open the link. Type the 5-digit code, press **CONNECT** and then **ENABLE SENSORS**. The phone page follows the phone language (English, Spanish or Portuguese). The accelerometer only works over HTTPS, and the tunnel link already is.
 
 ### 3. Several phones
 

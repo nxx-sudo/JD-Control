@@ -32,6 +32,9 @@ for %%F in (server.js tunnel.js tunnel.bat start.bat package.json package-lock.j
   if exist "%%F" copy /y "%%F" "%OUT%\" >nul
 )
 robocopy src "%OUT%\src" /e /njh /njs /nfl /ndl >nul
+rem Capturas del README (el repo las guarda en JD-Control\docs).
+if exist "docs" robocopy docs "%OUT%\docs" /e /njh /njs /nfl /ndl >nul
+if exist "JD-Control\docs" robocopy "JD-Control\docs" "%OUT%\docs" /e /njh /njs /nfl /ndl >nul
 robocopy public "%OUT%\public" /e /njh /njs /nfl /ndl >nul
 robocopy node_modules "%OUT%\node_modules" /e /njh /njs /nfl /ndl >nul
 
