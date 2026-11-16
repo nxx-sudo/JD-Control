@@ -4,147 +4,149 @@
   <a href="https://github.com/nxx-sudo/JD-Control/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1%20BETA-blue"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-blue"></a>
   <a href="https://github.com/nxx-sudo/JD-Control/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/nxx-sudo/JD-Control/total"></a>
-  <a href="https://discord.gg/TU-INVITACION"><img alt="discord" src="https://img.shields.io/badge/discord-unirse-5865F2"></a>
+  <a href="https://discord.gg/TU-INVITACION"><img alt="discord" src="https://img.shields.io/badge/discord-join-5865F2"></a>
 </p>
 
 <p align="center">
-  Controlador con el móvil para <b>Just Dance Legacy</b> en PC: sala local, multijugador entre PCs y túnel público para jugar desde cualquier red.
+  Phone controller for <b>Just Dance Legacy</b> on PC: local room, multiplayer across PCs and a public tunnel to play from any network.
 </p>
 
 ---
 
-## Qué es
+## What it is
 
-JD CONTROL es un mod de escritorio que abre una **sala local** en tu PC y conecta los móviles como mandos (flechas, OK, pausa y acelerómetro para puntuar). No modifica el juego: habla con él por la interfaz que ya expone `Legacy.exe`.
+JD CONTROL is a desktop mod that opens a **local room** on your PC and turns phones into controllers (arrows, OK, pause and the accelerometer for scoring). It does not patch the game: it talks to it through the interface `Legacy.exe` already exposes.
 
-- **Varios móviles** a la vez, cada uno con su jugador.
-- **Sala entre PCs**: un PC abre la sala y los demás se unen con el código.
-- **Cualquier red**: un túnel `cloudflared` publica tu PC en HTTPS, así el móvil conecta desde datos móviles sin abrir puertos.
-- **3 idiomas**: English, Español y Portuguese (Brasil).
+- **Several phones** at once, each one with its own player.
+- **Room across PCs**: one PC hosts the room and the others join with the code.
+- **Any network**: a `cloudflared` tunnel publishes your PC over HTTPS, so a phone on mobile data connects without opening ports.
+- **3 languages**: English, Español and Portuguese (Brazil).
 
-## Capturas
+## Screenshots
 
-| Sala cerrada | Sala creada (online activo) |
+| Room closed | Room created (online active) |
 | :--: | :--: |
-| <img src="docs/panel-cerrado.png" width="320"> | <img src="docs/panel-sala.png" width="320"> |
+| <img src="docs/panel-closed.png" width="320"> | <img src="docs/panel-room.png" width="320"> |
 
-| Unirse a una sala desde el PC | Ajustes |
+| Joining a room from the PC | Settings |
 | :--: | :--: |
-| <img src="docs/panel-unirse.png" width="320"> | <img src="docs/panel-ajustes.png" width="320"> |
+| <img src="docs/panel-join.png" width="320"> | <img src="docs/panel-settings.png" width="320"> |
 
-| Móvil: código | Móvil: listo para jugar |
+| Phone: code | Phone: ready to play |
 | :--: | :--: |
-| <img src="docs/movil-conectar.png" width="240"> | <img src="docs/movil-listo.png" width="240"> |
+| <img src="docs/mobile-code.png" width="240"> | <img src="docs/mobile-ready.png" width="240"> |
 
-## Cómo funciona
+## How it works
 
 ```
-  Móvil (navegador)                PC con JD CONTROL                  Juego
-  ─────────────────                ───────────────────                ─────
-  /m  ─── HTTPS/WSS ───►  server.js  ── HTTP 127.0.0.1:8080 ──►  Legacy.exe
+  Phone (browser)               PC running JD CONTROL              Game
+  ───────────────               ─────────────────────              ────
+  /m  ─── HTTPS/WSS ───►  server.js  ─── local HTTP ───►  Legacy.exe
                                 │
-                                ├── panel .NET (JD CONTROL.exe): QR, código, jugadores
-                                ├── sala online (/ws/online): otros PCs con JD CONTROL
-                                └── túnel cloudflared: URL pública https://…trycloudflare.com
+                                ├── .NET panel (JD CONTROL.exe): QR, code, players
+                                ├── online room (/ws/online): other PCs with JD CONTROL
+                                └── cloudflared tunnel: public URL https://…trycloudflare.com
 ```
 
-1. `JD CONTROL.exe` arranca `server.js` (Node) si no está corriendo.
-2. El servidor crea el certificado local, sirve la web del móvil (`/m`) y abre el túnel público.
-3. El panel muestra el **código de 5 dígitos** y el **QR** con el enlace ya listo.
-4. El móvil entra, escribe el código, activa los sensores y manda las pulsaciones al servidor; el servidor las reenvía al juego.
+1. `JD CONTROL.exe` starts `server.js` (Node) if it is not running yet.
+2. The server creates the local certificate, serves the phone page (`/m`) and opens the public tunnel.
+3. The panel shows the **5-digit code** and the **QR** with the link, already pointing at the room.
+4. The phone opens the link, types the code, enables the sensors and sends the presses to the server; the server forwards them to the game.
 
-Todo el estado (jugador, canción, fase, puntuación) vive en el PC: el móvil solo es un mando.
+All the state (player, song, phase, score) lives on the PC: the phone is only a controller.
 
-## Requisitos
+## Requirements
 
 - Windows 10/11.
-- **Just Dance Legacy** (PC) con el servidor HTTP del juego en `127.0.0.1:8080`.
-- Para usar el paquete ya compilado no hace falta nada más (lleva Node portable).
-- Para compilar desde el código: .NET Framework 4.x (`csc.exe`) y Node.js 18+.
+- **Just Dance Legacy** installed on the PC.
 
-## Instalación
+That is all: JD CONTROL finds the running game on its own and connects to it, so you never type an address or a port. The zip also ships Node portable, so you do not need to install anything else.
 
-1. Descarga el zip de [Releases](https://github.com/nxx-sudo/JD-Control/releases) y descomprímelo **completo** (el `.exe` solo es la ventana; el servidor va en la carpeta).
-2. Abre `JD CONTROL.exe` desde esa carpeta.
-3. La primera vez descarga `cloudflared.exe` si falta (el túnel lo necesita).
+To build from source you do need .NET Framework 4.x (`csc.exe`) and Node.js 18+.
 
-## Uso
+## Install
 
-### 1. Abrir la sala
+1. Download the zip from [Releases](https://github.com/nxx-sudo/JD-Control/releases) and extract it **whole** (the `.exe` is only the window; the server lives in the folder).
+2. Run `JD CONTROL.exe` from that folder.
+3. The first time it downloads `cloudflared.exe` if it is missing (the tunnel needs it).
 
-<img src="docs/panel-cerrado.png" width="320">
+## Usage
 
-Pulsa **Abrir servidor**. El panel pasa a `sala creada: online activo` (en verde) y muestra el código y el QR.
+### 1. Open the room
 
-### 2. Conectar tu móvil
+<img src="docs/panel-closed.png" width="320">
 
-<img src="docs/movil-conectar.png" width="240">
+Press **Open server**. The panel switches to `room created: online active` (in green) and shows the code and the QR.
 
-Escanea el QR con la cámara del móvil o abre el enlace. Escribe el código de 5 dígitos, pulsa **CONECTAR** y luego **ACTIVAR SENSORES** (el acelerómetro solo funciona en HTTPS, y el enlace del túnel ya lo es).
+### 2. Connect your phone
 
-### 3. Varios móviles
+<img src="docs/mobile-code.png" width="240">
 
-El mismo QR sirve para todos: cada móvil que entra ocupa un jugador. Aparecerán en **JUGADORES EN SALA** con su estado (`En el menú`, `Bailando`, …).
+Scan the QR with the phone camera or open the link. Type the 5-digit code, press **CONECTAR** and then **ACTIVAR SENSORES** (the phone page is in Spanish for now). The accelerometer only works over HTTPS, and the tunnel link already is.
 
-### 4. Cerrar la sala
+### 3. Several phones
 
-Pulsa **Cerrar servidor**: se cierra la sala, se apaga el túnel y los móviles se desconectan. El panel vuelve a `SALA LOCAL`.
+The same QR works for everyone: each phone that joins takes one player. They show up under **PLAYERS IN ROOM** with their state (`In the game`, `Dancing`, …).
 
-### 5. Unirse a una sala desde otro PC
+### 4. Close the room
 
-<img src="docs/panel-unirse.png" width="320">
+Press **Close server**: the room closes, the tunnel stops and the phones disconnect. The panel goes back to `LOCAL ROOM`.
 
-En el otro PC: **Unirse a sala** → escribe la IP del anfitrión (`192.168.1.20`) **o** su URL de túnel (`https://algo.trycloudflare.com`) y el código.
+### 5. Join a room from another PC
 
-- Misma red: vale la IP, o nada (se busca la sala por código).
-- Otra red: pega la URL del túnel; puedes pegar el enlace completo del QR, se queda con el dominio.
+<img src="docs/panel-join.png" width="320">
 
-Cada PC sigue usando su propio `Legacy.exe` y sus propios móviles; la sala sincroniza canción y fase.
+On the other PC: **Join room** → type the host IP (`192.168.1.20`) **or** its tunnel URL (`https://something.trycloudflare.com`) and the code.
 
-### 6. Jugar desde otra red
+- Same network: the IP is enough, or leave it empty (the room is found by code).
+- Another network: paste the tunnel URL; you can paste the full QR link, only the domain is kept.
 
-El túnel se abre junto con la sala. La URL `https://…trycloudflare.com` cambia en cada arranque: usa siempre el QR del panel.
+Each PC keeps using its own `Legacy.exe` and its own phones; the room syncs the song and the phase.
 
-## Configuración
+### 6. Play from another network
 
-<img src="docs/panel-ajustes.png" width="320">
+The tunnel opens together with the room. The `https://…trycloudflare.com` URL changes on every start: always use the QR on the panel.
 
-El botón de ajustes (icono de sliders, arriba a la derecha) abre:
+## Settings
 
-- **Idioma**: English, Español, Portuguese (Brasil). Se detecta el idioma de Windows; si no es español ni portugués, arranca en inglés.
-- **Mostrar actualizaciones disponibles**: consulta las *releases* de este repositorio al abrir el panel y avisa abajo si hay una versión nueva.
+<img src="docs/panel-settings.png" width="320">
+
+The settings button (sliders icon, top right) opens:
+
+- **Language**: English, Español, Portuguese (Brazil). It detects the Windows language; anything other than Spanish or Portuguese starts in English.
+- **Show available updates**: checks the releases of this repository when the panel opens and warns at the bottom if there is a newer version.
 
 <img src="docs/panel-update.png" width="320">
 
-Si hay versión nueva, el aviso aparece bajo los botones y abre la página de descarga al pulsarlo. Con la misma versión publicada no se muestra nada.
+If there is a newer version, the notice appears under the buttons and opens the download page when clicked. With the same version published nothing is shown.
 
-Se guarda en `settings.json`, junto al ejecutable.
+It is stored in `settings.json`, next to the executable.
 
-## Compilar
+## Build
 
 ```bat
 build.bat
 ```
 
-Genera `JD CONTROL.exe` con `csc.exe`. Para la carpeta distribuible (con Node portable, dependencias y zip):
+Produces `JD CONTROL.exe` with `csc.exe`. For the distributable folder (with portable Node, dependencies and zip):
 
 ```bat
 package.bat
 ```
 
-## Estructura
+## Structure
 
 ```
-app/                 panel nativo en C# (MainForm.cs, Lang.cs, AssemblyInfo.cs)
-server.js            servidor: web del móvil, sala online y túnel
-src/                 puente con el juego (gamephone.js) y túnel remoto
-public/              web que carga el móvil (mobile.html, mobile.js, fuentes)
-build.bat compila el exe
-package.bat       genera dist/ listo para compartir
+app/                 native C# panel (MainForm.cs, Lang.cs, AssemblyInfo.cs)
+server.js            server: phone page, online room and tunnel
+src/                 bridge to the game (gamephone.js) and remote tunnel
+public/              page the phone loads (mobile.html, mobile.js, fonts)
+build.bat            compiles the exe
+package.bat          builds dist/ ready to share
 ```
 
-## Licencia
+## License
 
-[GNU GPL v3](LICENSE). Puedes usarlo, modificarlo y redistribuirlo manteniendo el código abierto.
+[GNU GPL v3](LICENSE). You can use, modify and redistribute it as long as it stays open source.
 
-> El enlace de Discord es un marcador: cámbialo por el de tu servidor.
+> The Discord badge is a placeholder: replace it with your own server invite.
