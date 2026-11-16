@@ -4,7 +4,7 @@
   <a href="https://github.com/nxx-sudo/JD-Control/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1%20BETA-blue"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-blue"></a>
   <a href="https://github.com/nxx-sudo/JD-Control/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/nxx-sudo/JD-Control/total"></a>
-  <a href="https://discord.gg/TU-INVITACION"><img alt="discord" src="https://img.shields.io/badge/discord-join-5865F2"></a>
+  <a href="https://discord.gg/Bd2JGhfmFJ"><img alt="discord" src="https://img.shields.io/badge/discord-join-5865F2"></a>
 </p>
 
 <p align="center">
@@ -149,4 +149,3 @@ package.bat          builds dist/ ready to share
 
 [GNU GPL v3](LICENSE). You can use, modify and redistribute it as long as it stays open source.
 
-> The Discord badge is a placeholder: replace it with your own server invite.
