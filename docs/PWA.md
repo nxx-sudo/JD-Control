@@ -50,20 +50,6 @@ son otro origen y nunca se interceptan.
 
 Por defecto el backend es `https://jd-remote.onrender.com`.
 
-## Publicar en GitHub Pages
-
-El repositorio `nxx-sudo/JD-Control` sirve la carpeta `docs/`:
-
-1. Copia el contenido de esta carpeta a `JD-Control/docs/` **sin borrar** las
-   capturas que ya hay ahí.
-2. En GitHub: **Settings -> Pages -> Source: Deploy from a branch**, rama
-   `main` y carpeta `/docs`. Guarda.
-3. Espera al despliegue y abre `https://nxx-sudo.github.io/JD-Control/`.
-
-Todas las rutas son relativas (`./`), así que funciona tanto en la raíz del
-sitio como en un subdirectorio. Si cambias archivos, sube la versión de
-`VERSION` en `sw.js` para que los móviles descarten la caché vieja.
-
 ## Probar en local
 
 Cualquier servidor estático vale; el service worker necesita `http://localhost`
