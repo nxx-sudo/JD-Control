@@ -1,0 +1,1079 @@
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+
+const screens = {
+  code: $('scr-code'),
+  ready: $('scr-ready'),
+  pad: $('scr-pad'),
+  lobby: $('scr-lobby'),
+  score: $('scr-score'),
+  popup: $('scr-popup'),
+};
+
+const codeInput = $('codeInput');
+const codeErr = $('codeErr');
+const readyErr = $('readyErr');
+const connName = $('connName');
+const playerAvatar = $('playerAvatar');
+const gamePill = $('gamePill');
+const roomLine = $('roomLine');
+const stateBig = $('stateBig');
+const coachStage = $('coachStage');
+const coachNameplate = $('coachNameplate');
+const lobbyName = $('lobbyName');
+const lobbyAvatar = $('lobbyAvatar');
+const danceAvatar = $('danceAvatar');
+
+let ws = null;
+let dancing = false;
+let lastAccel = 0;
+let wakeLock = null;
+let coaches = [];
+let coachSig = '';
+let selectedCoach = 0;
+let pendingContinue = null;
+let moveLevel = 0;
+let lastMag = 9.8;
+let lastMovePaint = 0;
+let playerName = '';
+let roomCode = '';
+let connecting = false;
+let retrying = false;
+let hostUrl = '';        // URL actual del túnel del PC (https://algo.trycloudflare.com)
+let lookupTries = 0;
+let motionOn = false;
+let motionAsk = null;
+
+/*
+ * PWA: no habla con el origen de la página (GitHub Pages, estático).
+ * Pide al backend el túnel actual del PC para el código de 5 dígitos y
+ * luego conecta el WebSocket y las imágenes directamente contra el túnel.
+ */
+const params = new URLSearchParams(location.search);
+let storedBackend = '';
+try { storedBackend = localStorage.getItem('jdBackend') || ''; } catch { /* modo privado */ }
+const BACKEND = String(
+  params.get('backend') || storedBackend || 'https://jd-remote.onrender.com'
+).replace(/\/+$/, '');
+if (params.get('backend')) {
+  try { localStorage.setItem('jdBackend', BACKEND); } catch { /* modo privado */ }
+}
+
+const hostParam = String(params.get('host') || '').replace(/\/+$/, '');
+if (/^https?:\/\//i.test(hostParam)) hostUrl = hostParam;
+if (params.get('code')) codeInput.value = String(params.get('code')).replace(/\D/g, '').slice(0, 5);
+
+/* La PWA siempre es remota: el PC está detrás de un túnel. */
+const remoteMode = true;
+
+const I18N = {
+  en: {
+    codeNote: 'Type the 5-digit code shown on the PC.',
+    btnConnect: 'CONNECT',
+    brandReady: 'READY',
+    readyNote: 'To score I need the phone accelerometer. Tap the button and keep the phone in your hand like in the game.',
+    btnStart: 'ENABLE SENSORS',
+    connecting: 'connecting...',
+    gameLoading: 'game...',
+    connected: 'connected',
+    gameClosed: 'game closed',
+    dancing: 'dancing',
+    gameMenu: 'in the menu',
+    ready: 'ready',
+    movement: 'MOVEMENT',
+    menu: 'MENU',
+    danceDo: 'DANCE!',
+    dance: 'DANCE!',
+    danceReady: 'I AM READY',
+    danceCancelReady: 'CANCEL READY',
+    pickCoach: 'PICK YOUR COACH',
+    back: 'BACK',
+    pcontinue: 'CONTINUE',
+    noSensors: 'NO SENSORS',
+    roomTag: 'ROOM {code}',
+    roomOnline: 'ONLINE ROOM',
+    host: 'HOST',
+    tagConnecting: 'CONNECTING',
+    admin: 'ADMIN',
+    inRoom: 'IN ROOM',
+    readyCount: 'Ready {a}/{b}',
+    errCode5: 'The code has 5 digits.',
+    errSearching: 'Looking for the PC on your network...',
+    errRetry: 'Connecting to the server... ({n}/3)',
+    errLost: 'Connection lost. Join again.',
+    errConnecting: 'Connecting to the server...',
+    errNoConn: 'Could not connect. Check the code and the network.',
+    errNoRoom: 'That code is not active. Open the room on the PC.',
+    errRemote: 'The PC is not connected to the remote server.',
+    errLooking: 'Looking for the room on the server...',
+    errWake: 'The server is waking up. One moment...',
+    errLookup: 'Could not reach the matchmaking server. Check your connection.',
+    errNoTunnel: 'The room is open, but the PC tunnel is not ready yet.',
+    errRoomClosed: 'The room closed. Open it again on the PC.',
+    errHost: 'The matchmaking server returned an invalid tunnel address.',
+    coachesEmpty: 'The game has not sent the coaches yet',
+    sensorDenied: 'Sensor permission denied.',
+    sensorAskFail: 'Could not ask for sensor permission.',
+    ariaUp: 'Up', ariaLeft: 'Left', ariaRight: 'Right', ariaDown: 'Down',
+    ariaBack: 'Back', ariaPause: 'Pause', ariaSwitchRoom: 'Switch room',
+  },
+  es: {
+    codeNote: 'Pide el código de 5 dígitos que aparece en el PC.',
+    btnConnect: 'CONECTAR',
+    brandReady: 'LISTO',
+    readyNote: 'Para puntuar necesito el acelerómetro del móvil. Pulsa el botón y mantén el teléfono en la mano como en el juego.',
+    btnStart: 'ACTIVAR SENSORES',
+    connecting: 'conectando...',
+    gameLoading: 'juego...',
+    connected: 'conectado',
+    gameClosed: 'juego cerrado',
+    dancing: 'bailando',
+    gameMenu: 'en el menú',
+    ready: 'listo',
+    movement: 'MOVIMIENTO',
+    menu: 'MENU',
+    danceDo: 'BAILA!',
+    dance: 'BAILAR!',
+    danceReady: 'ESTOY LISTO',
+    danceCancelReady: 'CANCELAR LISTO',
+    pickCoach: 'ELIGE TU COACH',
+    back: 'ATRÁS',
+    pcontinue: 'CONTINUAR',
+    noSensors: 'SIN SENSORES',
+    roomTag: 'SALA {code}',
+    roomOnline: 'SALA ONLINE',
+    host: 'ANFITRION',
+    tagConnecting: 'CONECTANDO',
+    admin: 'ADMIN',
+    inRoom: 'EN SALA',
+    readyCount: 'Listos {a}/{b}',
+    errCode5: 'El código tiene 5 dígitos.',
+    errSearching: 'Buscando el PC en la red...',
+    errRetry: 'Conectando con el servidor... ({n}/3)',
+    errLost: 'Se perdió la conexión. Vuelve a entrar.',
+    errConnecting: 'Conectando con el servidor...',
+    errNoConn: 'No se pudo conectar. Revisa el código y la red.',
+    errNoRoom: 'Ese código no está activo. Abre la sala en el PC.',
+    errRemote: 'El PC no está conectado al servidor remoto.',
+    errLooking: 'Buscando la sala en el servidor...',
+    errWake: 'El servidor está despertando. Un momento...',
+    errLookup: 'No se pudo consultar el servidor de emparejamiento. Revisa tu conexión.',
+    errNoTunnel: 'La sala está abierta, pero el túnel del PC aún no está listo.',
+    errRoomClosed: 'La sala se cerró. Vuelve a abrirla en el PC.',
+    errHost: 'El servidor devolvió una dirección de túnel no válida.',
+    coachesEmpty: 'El juego no envió coaches todavía',
+    sensorDenied: 'Permiso de sensores denegado.',
+    sensorAskFail: 'No se pudo pedir permiso de sensores.',
+    ariaUp: 'Arriba', ariaLeft: 'Izquierda', ariaRight: 'Derecha', ariaDown: 'Abajo',
+    ariaBack: 'Atrás', ariaPause: 'Pausa', ariaSwitchRoom: 'Cambiar de sala',
+  },
+  pt: {
+    codeNote: 'Digite o código de 5 dígitos que aparece no PC.',
+    btnConnect: 'CONECTAR',
+    brandReady: 'PRONTO',
+    readyNote: 'Para pontuar preciso do acelerômetro do celular. Toque no botão e mantenha o telefone na mão como no jogo.',
+    btnStart: 'ATIVAR SENSORES',
+    connecting: 'conectando...',
+    gameLoading: 'jogo...',
+    connected: 'conectado',
+    gameClosed: 'jogo fechado',
+    dancing: 'dançando',
+    gameMenu: 'no menu',
+    ready: 'pronto',
+    movement: 'MOVIMENTO',
+    menu: 'MENU',
+    danceDo: 'DANCE!',
+    dance: 'DANCE!',
+    danceReady: 'ESTOU PRONTO',
+    danceCancelReady: 'CANCELAR PRONTO',
+    pickCoach: 'ESCOLHA SEU COACH',
+    back: 'VOLTAR',
+    pcontinue: 'CONTINUAR',
+    noSensors: 'SEM SENSORES',
+    roomTag: 'SALA {code}',
+    roomOnline: 'SALA ONLINE',
+    host: 'ANFITRIÃO',
+    tagConnecting: 'CONECTANDO',
+    admin: 'ADMIN',
+    inRoom: 'NA SALA',
+    readyCount: 'Prontos {a}/{b}',
+    errCode5: 'O código tem 5 dígitos.',
+    errSearching: 'Procurando o PC na rede...',
+    errRetry: 'Conectando ao servidor... ({n}/3)',
+    errLost: 'Conexão perdida. Entre de novo.',
+    errConnecting: 'Conectando ao servidor...',
+    errNoConn: 'Não foi possível conectar. Confira o código e a rede.',
+    errNoRoom: 'Esse código não está ativo. Abra a sala no PC.',
+    errRemote: 'O PC não está conectado ao servidor remoto.',
+    errLooking: 'Procurando a sala no servidor...',
+    errWake: 'O servidor está acordando. Um momento...',
+    errLookup: 'Não foi possível consultar o servidor de emparelhamento. Verifique sua conexão.',
+    errNoTunnel: 'A sala está aberta, mas o túnel do PC ainda não está pronto.',
+    errRoomClosed: 'A sala foi fechada. Abra novamente no PC.',
+    errHost: 'O servidor retornou um endereço de túnel inválido.',
+    coachesEmpty: 'O jogo ainda não enviou os coaches',
+    sensorDenied: 'Permissão dos sensores negada.',
+    sensorAskFail: 'Não foi possível pedir permissão dos sensores.',
+    ariaUp: 'Cima', ariaLeft: 'Esquerda', ariaRight: 'Direita', ariaDown: 'Baixo',
+    ariaBack: 'Voltar', ariaPause: 'Pausa', ariaSwitchRoom: 'Trocar de sala',
+  },
+};
+
+function pickLang() {
+  const asked = String(params.get('lang') || '').toLowerCase();
+  const sys = (navigator.languages && navigator.languages[0]) || navigator.language || 'en';
+  const tag = asked || sys;
+  if (tag.indexOf('pt') === 0) return 'pt';
+  if (tag.indexOf('es') === 0) return 'es';
+  if (tag.indexOf('en') === 0) return 'en';
+  return 'en';
+}
+
+const LANG = pickLang();
+const TEXT = I18N[LANG] || I18N.en;
+
+function t(key, vars) {
+  let s = TEXT[key];
+  if (s == null) s = I18N.en[key];
+  if (s == null) return key;
+  if (vars) {
+    Object.keys(vars).forEach((k) => { s = s.split('{' + k + '}').join(String(vars[k])); });
+  }
+  return s;
+}
+
+function applyStatic() {
+  document.documentElement.lang = LANG;
+  document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
+  document.querySelectorAll('[data-tt]').forEach((el) => {
+    const v = t(el.dataset.tt);
+    el.setAttribute('title', v);
+    el.setAttribute('aria-label', v);
+  });
+  connName.textContent = t('connecting');
+  gamePill.textContent = t('gameLoading');
+  stateBig.textContent = t('menu');
+}
+
+applyStatic();
+
+function show(name) {
+  Object.entries(screens).forEach(([key, el]) => el.classList.toggle('active', key === name));
+}
+
+const gameImg = (p) => {
+  if (!p) return '';
+  if (/^https?:/i.test(p)) return p;
+  const rel = p.startsWith('/') ? p : '/' + p;
+  // Las imágenes del juego viven en el PC: se piden a su túnel actual.
+  if (hostUrl) return hostUrl + '/game' + rel;
+  return '/game' + rel;
+};
+
+/** Nombre real del perfil que esta usando el juego (no "usuario 1").
+    Si trae acentos, se usa Segoe: la DEMO de RBNo los dibuja como cajas. */
+function jdName(el, text) {
+  el.textContent = text;
+  el.classList.toggle('jd-fallback', /[^\x20-\x7E]/.test(text));
+}
+
+function setName(n) {
+  const v = String(n || '').trim();
+  if (!v || v.indexOf('[icon:') === 0) return;
+  playerName = v;
+  jdName(connName, v);
+}
+
+/** Avatar del perfil, servido por el servidor del PC (a través del túnel). */
+function setAvatar(url) {
+  if (!url) return;
+  if (url.startsWith('/') && hostUrl) url = hostUrl + url;
+  if (playerAvatar.getAttribute('src') === url) return;
+  playerAvatar.src = url;
+  playerAvatar.style.display = 'block';
+}
+
+/** Linea discreta con el estado de la sala online del exe. */
+function setOnline(on) {
+  $('btnDance').textContent = on && on.requiresReady
+    ? t(on.localReady ? 'danceCancelReady' : 'danceReady')
+    : t('dance');
+  if (!on || !on.role) {
+    roomLine.textContent = '';
+    roomLine.classList.remove('on');
+    return;
+  }
+
+  let text = on.code ? t('roomTag', { code: on.code }) : t('roomOnline');
+  if (on.role === 'host') text += ' · ' + t('host');
+  else if (!on.connected) text += ' · ' + t('tagConnecting');
+  else text += ' · ' + (on.admin ? t('admin') : t('inRoom'));
+
+  if (on.hint) text += ` · ${on.hint}`;
+  else if (on.role === 'member' && on.targetSong) text += ` · ${on.targetSong}`;
+  if (on.localReady && on.totalCount)
+    text += ' · ' + t('readyCount', { a: on.readyCount, b: on.totalCount });
+
+  roomLine.textContent = text;
+  roomLine.classList.add('on');
+}
+
+function goHome() {
+  const socket = ws;
+  ws = null;
+  if (socket) {
+    socket.jdManual = true;
+    try { socket.close(); } catch {}
+  }
+
+  playerName = '';
+  roomCode = '';
+  hostUrl = '';
+  lookupTries = 0;
+  connName.textContent = t('connecting');
+  connName.classList.remove('jd-fallback');
+  playerAvatar.removeAttribute('src');
+  playerAvatar.style.display = 'none';
+  lobbyName.textContent = '';
+  lobbyAvatar.removeAttribute('src');
+  lobbyAvatar.style.display = 'none';
+  coachNameplate.classList.remove('on');
+  coachStage.innerHTML = '';
+  gamePill.textContent = t('gameLoading');
+  gamePill.className = '';
+  roomLine.textContent = '';
+  roomLine.classList.remove('on');
+  $('btnDance').textContent = t('dance');
+  coaches = [];
+  coachSig = '';
+  selectedCoach = 0;
+  pendingContinue = null;
+  codeInput.value = '';
+  codeErr.textContent = '';
+  readyErr.textContent = '';
+
+  try { history.replaceState(null, '', location.pathname); } catch {}
+  setDancing(false);
+  show('code');
+}
+
+/* ------------------------------------------------------------------ */
+/*  Conexión                                                           */
+/* ------------------------------------------------------------------ */
+/** Pide permiso de sensores dentro del gesto del usuario (obligatorio en iOS). */
+function askMotion() {
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function') {
+      return DeviceMotionEvent.requestPermission().catch(() => 'denied');
+    }
+  } catch { /* sin permiso */ }
+  return Promise.resolve('granted');
+}
+
+/** Backend: código de sala -> URL actual del túnel del PC. */
+async function lookupRoom(code) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    const res = await fetch(`${BACKEND}/api/lookup?code=${encodeURIComponent(code)}`, {
+      cache: 'no-store',
+      signal: ctrl.signal,
+    });
+    if (res.status === 404) return { error: 'no-room' };
+    if (!res.ok) throw new Error('lookup ' + res.status);
+    const info = await res.json();
+    if (!info || !info.ok) return { error: (info && info.error) || 'no-room' };
+    const tunnel = String(info.tunnel || '').replace(/\/+$/, '');
+    if (!/^https:\/\/[^\s/]+$/i.test(tunnel)) return { error: 'bad-host' };
+    return { ...info, tunnel };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function connect(earlyMotion) {
+  const code = codeInput.value.replace(/\D/g, '').slice(0, 5);
+  if (code.length !== 5) {
+    codeErr.textContent = t('errCode5');
+    return;
+  }
+  if (connecting || retrying || ws) return;
+
+  connecting = true;
+  codeErr.textContent = t('errLooking');
+  readyErr.textContent = '';
+  roomCode = code;
+  motionAsk = earlyMotion || askMotion();
+
+  let info = null;
+  try {
+    info = await lookupRoom(code);
+    // El plan gratuito de Render duerme: un fallo puede ser el arranque.
+    for (let i = 0; i < 2 && (!info || info.error); i += 1) {
+      codeErr.textContent = t('errWake');
+      await new Promise((r) => setTimeout(r, 2500 + i * 2500));
+      info = await lookupRoom(code);
+    }
+  } catch {
+    info = { error: 'lookup' };
+  }
+
+  if (!info || info.error) {
+    connecting = false;
+    motionAsk = null;
+    codeErr.textContent = info && info.error === 'no-room'
+      ? t('errNoRoom')
+      : info && info.error === 'bad-host'
+        ? t('errHost')
+        : t('errLookup');
+    return;
+  }
+
+  hostUrl = info.tunnel;
+  connecting = false;
+  startRelay(0);
+}
+
+/** WebSocket directo contra el túnel actual del PC. */
+function startRelay(attempt) {
+  if (!hostUrl) return;
+  const base = hostUrl.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:');
+  attachSocket(new WebSocket(`${base}/ws/phone?code=${roomCode}`), attempt);
+}
+
+function attachSocket(socket, attempt) {
+  ws = socket;
+  let opened = false;
+
+  const joined = async () => {
+    opened = true;
+    retrying = false;
+    codeErr.textContent = '';
+    const perm = motionAsk ? await motionAsk : 'granted';
+    motionAsk = null;
+    if (perm === 'granted') {
+      await startSensors('granted');
+    } else {
+      show('ready');
+      readyErr.textContent = t('sensorDenied');
+    }
+  };
+
+  if (socket.readyState === 1) joined();
+  else socket.addEventListener('open', joined);
+
+  socket.addEventListener('close', () => {
+    if (ws === socket) ws = null;
+    if (socket.jdManual) return;
+
+    // El túnel puede tardar o Cloudflare puede haber cambiado la URL:
+    // se vuelve a preguntar al backend y se reintenta.
+    if (!opened && !socket.jdNoRetry && attempt < 2) {
+      retrying = true;
+      codeErr.textContent = t('errRetry', { n: attempt + 2 });
+      setTimeout(async () => {
+        retrying = false;
+        if (ws) return;
+        try {
+          const info = await lookupRoom(roomCode);
+          if (info && !info.error) hostUrl = info.tunnel;
+        } catch { /* se reintenta igual */ }
+        startRelay(attempt + 1);
+      }, 1800);
+      return;
+    }
+
+    if (screens.pad.classList.contains('active') || screens.lobby.classList.contains('active') ||
+        screens.ready.classList.contains('active')) {
+      setTimeout(() => {
+        if (ws) return; // ya hay otra conexion en marcha
+        show('code');
+        codeErr.textContent = t('errLost');
+      }, 800);
+    }
+  });
+
+  socket.addEventListener('error', () => {
+    if (!opened) codeErr.textContent = t('errConnecting');
+  });
+
+  socket.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+
+    if (msg.type === 'error') {
+      socket.jdNoRetry = true;
+      codeErr.textContent = msg.error === 'no-room' ? t('errNoRoom') : t('errRemote');
+    } else if (msg.type === 'joined') {
+      if (!playerName) connName.textContent = t('connected');
+    } else if (msg.type === 'online') {
+      setOnline(msg.online);
+    } else if (msg.type === 'game-state') {
+      const st = msg.state;
+      if (st.name) setName(st.name);
+      if (st.avatarUrl) setAvatar(st.avatarUrl);
+      if (st.online) setOnline(st.online);
+
+      if (!st.connected) {
+        gamePill.textContent = t('gameClosed');
+        gamePill.className = '';
+      } else if (st.sending) {
+        gamePill.textContent = t('dancing');
+        gamePill.className = 'dance';
+      } else {
+        gamePill.textContent = t('gameMenu');
+        gamePill.className = '';
+      }
+    } else if (msg.type === 'ready') {
+      gamePill.textContent = t('ready');
+      gamePill.className = '';
+    } else if (msg.type === 'cmd-rejected' && msg.reason) {
+      roomLine.textContent = msg.reason;
+      roomLine.classList.add('on');
+    } else if (msg.type === 'game') {
+      handleGame(msg.msg);
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Estados que manda el juego                                         */
+/* ------------------------------------------------------------------ */
+function handleGame(m) {
+  if (!m) return;
+
+  if (m.__class === 'JD_EnableAccelValuesSending_ConsoleCommandData') {
+    setDancing(true);
+    show('pad');
+    return;
+  }
+  if (m.__class === 'JD_DisableAccelValuesSending_ConsoleCommandData') {
+    setDancing(false);
+    return;
+  }
+  if (m.__class === 'JD_ClosePopup_ConsoleCommandData') {
+    show('pad');
+    return;
+  }
+  if (m.__class === 'JD_ProfilePhoneUiData') {
+    setName(m.name);
+    return;
+  }
+  if (m.__class !== 'JD_PhoneUiSetupData') return;
+
+  const sd = m.setupData;
+  if (!sd) return;
+
+  // Popup del juego (tutorial, avisos). Solo si hay UNA opción clara:
+  // los avisos de "si/no" no funcionan bien desde el movil, asi que se ignoran.
+  if (m.isPopup === 1 && sd.mainCarousel) {
+    const items = visibleItems(sd.mainCarousel);
+    if (items.length === 1) {
+      renderPopup(items[0]);
+      return;
+    }
+  }
+
+  // Selección de coach
+  if (sd.lobbySetup) {
+    setDancing(false);
+    const prof = sd.lobbySetup.changeProfile;
+    if (prof) {
+      setName(prof.title);
+      setLobbyProfile(prof.title, prof.image || prof.icon);
+    } else {
+      setLobbyProfile(playerName, null);
+    }
+    renderCoaches(sd.lobbySetup.coaches || sd.lobbySetup.lobbyData || []);
+    show('lobby');
+    requestAnimationFrame(layoutCoaches);
+    return;
+  }
+
+  // Comienza la canción
+  if (sd.gameplaySetup) {
+    const img = sd.gameplaySetup.coachImage || sd.gameplaySetup.image;
+    if (img) danceAvatar.src = gameImg(img);
+    setDancing(true);
+    stateBig.textContent = t('danceDo');
+    show('pad');
+    return;
+  }
+
+  // Resultado
+  if (sd.recapSetup) {
+    setDancing(false);
+    const recap = sd.recapSetup.recapData || {};
+
+    // El boton "Continuar" del recap trae su propio comando literal
+    pendingContinue = null;
+    const cont = visibleItems(sd.mainCarousel).find((i) => /continuar|continue|ok/i.test(i.title || ''));
+    if (cont) pendingContinue = actionOf(cont);
+
+    renderScore(recap.songScore || 0, recap.stars);
+    show('score');
+    return;
+  }
+
+  // Menú / carrusel / pausa
+  if (sd.mainCarousel) {
+    setDancing(false);
+    stateBig.textContent = t('menu');
+    stateBig.classList.remove('on');
+    show('pad');
+    return;
+  }
+
+  if (!dancing) {
+    setDancing(false);
+    stateBig.textContent = t('menu');
+    show('pad');
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Popups del juego (una sola opcion)                                 */
+/* ------------------------------------------------------------------ */
+function visibleItems(carousel) {
+  const rows = (carousel && carousel.rows) || [];
+  return rows
+    .flatMap((r) => r.items || [])
+    .filter((i) => i && i.isEnabled !== 0 && i.isLocked !== 1);
+}
+
+function itemImage(it) {
+  return gameImg(it.image || it.icon || '');
+}
+
+function actionOf(it) {
+  const a = (it.actions || [])[0];
+  return a && typeof a.command === 'string' ? a.command : null;
+}
+
+function runItem(it) {
+  const command = actionOf(it);
+  if (!command) return false;
+  send({ type: 'action', command });
+  if (navigator.vibrate) navigator.vibrate(30);
+  return true;
+}
+
+function renderPopup(item) {
+  setDancing(false);
+
+  const img = itemImage(item);
+  const pic = $('popupImg');
+  pic.style.display = img ? 'block' : 'none';
+  if (img) pic.src = img;
+
+  const title = $('popupTitle');
+  title.textContent = '';
+  title.style.display = 'none';
+
+  // La tarjeta solo aparece si el juego manda una ilustracion real
+  const card = pic.parentElement;
+  card.style.display = img ? 'flex' : 'none';
+
+  const box = $('popupButtons');
+  box.innerHTML = '';
+
+  const b = document.createElement('button');
+  b.className = 'btn-main';
+  b.textContent = (item.title || t('pcontinue')).toUpperCase();
+  b.addEventListener('click', () => {
+    runItem(item);
+    show('pad');
+  });
+  box.appendChild(b);
+
+  show('popup');
+}
+
+function setDancing(on) {
+  dancing = on;
+  document.body.classList.toggle('dancing', on);
+  stateBig.classList.toggle('on', on);
+  if (on) stateBig.textContent = t('danceDo');
+}
+
+/* ------------------------------------------------------------------ */
+/*  Coaches                                                            */
+/* ------------------------------------------------------------------ */
+/** Placa con el nombre del jugador, debajo de los personajes. */
+function setLobbyProfile(name, image) {
+  const n = String(name || '').trim();
+  const label = n && n.indexOf('[icon:') !== 0 ? n : '';
+  jdName(lobbyName, label);
+  const img = gameImg(image || '');
+  if (img) {
+    if (lobbyAvatar.getAttribute('src') !== img) lobbyAvatar.src = img;
+    lobbyAvatar.style.display = 'block';
+  } else {
+    lobbyAvatar.removeAttribute('src');
+    lobbyAvatar.style.display = 'none';
+  }
+  coachNameplate.classList.toggle('on', !!label);
+}
+
+function selectCoach(i) {
+  if (i === selectedCoach) return;
+  selectedCoach = i;
+  [...coachStage.children].forEach((el, j) => {
+    if (el.classList.contains('coach')) el.classList.toggle('sel', j === i);
+  });
+  if (navigator.vibrate) navigator.vibrate(25);
+  cmd('coach', { index: i });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Figuras de los coaches                                             */
+/* ------------------------------------------------------------------ */
+/* Los PNG del juego traen margenes transparentes. Se mide el recorte
+   real (caja alfa) para que la figura ocupe toda la altura disponible
+   y no quede pequeña dentro de un rectangulo. */
+function measureFigure(img) {
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  if (!nw || !nh) return null;
+
+  const full = { x0: 0, y0: 0, x1: nw, y1: nh, nw, nh };
+
+  try {
+    const k = Math.min(1, 220 / Math.max(nw, nh));
+    const cw = Math.max(1, Math.round(nw * k));
+    const ch = Math.max(1, Math.round(nh * k));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, cw, ch);
+
+    const data = ctx.getImageData(0, 0, cw, ch).data;
+    let x0 = cw, y0 = ch, x1 = -1, y1 = -1;
+
+    for (let y = 0; y < ch; y += 1) {
+      const row = y * cw * 4;
+      for (let x = 0; x < cw; x += 1) {
+        if (data[row + x * 4 + 3] > 8) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+
+    if (x1 < x0 || y1 < y0) return full;
+
+    const inv = 1 / k;
+    return {
+      x0: x0 * inv,
+      y0: y0 * inv,
+      x1: (x1 + 1) * inv,
+      y1: (y1 + 1) * inv,
+      nw,
+      nh,
+    };
+  } catch {
+    return full;
+  }
+}
+
+/** Coloca la imagen dentro del boton para que la caja alfa llene width x height. */
+function placeFigure(img, box, width, height) {
+  const b = box || { x0: 0, y0: 0, x1: img.naturalWidth, y1: img.naturalHeight, nw: img.naturalWidth, nh: img.naturalHeight };
+  const bw = Math.max(1, b.x1 - b.x0);
+  const bh = Math.max(1, b.y1 - b.y0);
+  const s = height / bh;
+
+  img.style.width = Math.round(b.nw * s) + 'px';
+  img.style.height = Math.round(b.nh * s) + 'px';
+  img.style.left = Math.round(width / 2 - ((b.x0 + b.x1) / 2) * s) + 'px';
+  img.style.bottom = Math.round(-(b.nh - b.y1) * s) + 'px';
+}
+
+/** Reparte las figuras: altura comun, solapamiento justo y sin salirse del ancho. */
+function layoutCoaches() {
+  const stage = coachStage;
+  const btns = [...stage.querySelectorAll('.coach')];
+  if (!btns.length) return;
+
+  const sw = stage.clientWidth;
+  const sh = stage.clientHeight;
+  if (!sw || !sh) return;
+
+  const imgs = btns.map((b) => b.querySelector('img'));
+  const aspects = imgs.map((img) => {
+    const b = img && img._bbox;
+    if (!b) return 0.5;
+    return Math.max(0.18, (b.x1 - b.x0) / Math.max(1, b.y1 - b.y0));
+  });
+
+  const avail = Math.max(120, sw - 10);
+  const n = btns.length;
+  const scales = btns.map((b) => (b.classList.contains('sel') ? 1.12 : 0.76));
+
+  // Altura base: el elegido (x1.12) cabe entero en la pista
+  let h = Math.min(sh * 0.88, 460);
+  let ov = 0;
+
+  for (let pass = 0; pass < 5; pass += 1) {
+    const vis = aspects.map((a, i) => a * h * scales[i]);
+    const total = vis.reduce((s, w) => s + w, 0);
+    const minVis = Math.min(...vis);
+    ov = n > 1 ? Math.min(minVis * 0.16, Math.max(0, (total - avail) / (n - 1))) : 0;
+
+    const used = total - ov * (n - 1);
+    if (used <= avail) break;
+    h *= Math.max(0.6, avail / used);
+  }
+
+  btns.forEach((btn, i) => {
+    const w = aspects[i] * h;
+    btn.style.width = Math.round(w) + 'px';
+    btn.style.height = Math.round(h) + 'px';
+    btn.style.setProperty('--ov', i === 0 ? '0px' : Math.round(ov) + 'px');
+    if (imgs[i]) placeFigure(imgs[i], imgs[i]._bbox, w, h);
+  });
+}
+
+function renderCoaches(list) {
+  const next = Array.isArray(list) ? list : [];
+  const idx = next.findIndex((c) => c && (c.selectedOnEnter === 1 || c.isSelected === 1));
+  coaches = next;
+  if (idx >= 0) selectedCoach = idx;
+  else if (selectedCoach >= coaches.length) selectedCoach = 0;
+
+  const sig = coaches.map((c) => gameImg(c.image || c.imageUrl || c.coachImage)).join('|');
+  $('lobbyCount').textContent = coaches.length ? `${coaches.length} coach${coaches.length === 1 ? '' : 's'}` : '';
+
+  // Mismo reparto de coaches: solo se refresca la seleccion (sin reiniciar la animacion)
+  if (coaches.length && sig === coachSig) {
+    [...coachStage.children].forEach((el, j) => {
+      if (el.classList.contains('coach')) el.classList.toggle('sel', j === selectedCoach);
+    });
+    layoutCoaches();
+    return;
+  }
+  coachSig = sig;
+
+  coachStage.innerHTML = '';
+  coachStage.dataset.count = String(Math.min(Math.max(coaches.length, 1), 4));
+
+  if (!coaches.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = t('coachesEmpty');
+    coachStage.appendChild(empty);
+    return;
+  }
+
+  coaches.forEach((c, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'coach' + (i === selectedCoach ? ' sel' : '');
+    btn.setAttribute('aria-label', `Coach ${i + 1}`);
+    btn.setAttribute('aria-pressed', i === selectedCoach ? 'true' : 'false');
+
+    const fig = document.createElement('div');
+    fig.className = 'fig';
+    btn.appendChild(fig);
+
+    const img = gameImg(c.image || c.imageUrl || c.coachImage);
+    if (img) {
+      const el = document.createElement('img');
+      // Cross-origin (Pages -> túnel): CORS permite medir el recorte real.
+      if (hostUrl && img.startsWith(hostUrl)) el.crossOrigin = 'anonymous';
+      el.src = img;
+      el.alt = '';
+      el.draggable = false;
+      fig.appendChild(el);
+
+      const prepare = () => {
+        const box = measureFigure(el);
+        if (box) el._bbox = box;
+        layoutCoaches();
+      };
+      if (el.complete && el.naturalWidth) prepare();
+      else el.addEventListener('load', prepare, { once: true });
+      el.addEventListener('error', () => el.remove(), { once: true });
+    }
+
+    btn.addEventListener('click', () => selectCoach(i));
+    coachStage.appendChild(btn);
+  });
+
+  requestAnimationFrame(layoutCoaches);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Puntaje                                                            */
+/* ------------------------------------------------------------------ */
+function renderScore(score, realStars) {
+  let stars = typeof realStars === 'number' ? realStars : 0;
+  const color = '#e9e9ef';
+  let rank = 'JUST DANCER';
+
+  if (score >= 12000) { rank = 'MEGASTAR'; }
+  else if (score >= 11000) { rank = 'SUPERSTAR'; }
+  else if (score >= 10000) { stars = Math.max(stars, 5); }
+  else if (score >= 8000) { stars = Math.max(stars, 4); }
+  else if (score >= 6000) { stars = Math.max(stars, 3); }
+  else if (score >= 4000) { stars = Math.max(stars, 2); }
+  else if (score >= 2000) { stars = Math.max(stars, 1); }
+
+  $('scoreVal').textContent = score;
+  $('scoreVal').style.color = color;
+  $('scoreRank').textContent = rank;
+  $('scoreRank').style.color = color;
+  $('scoreRank').style.textShadow = 'none';
+
+  const el = $('scoreStars');
+  el.innerHTML = '';
+  for (let i = 0; i < 5; i += 1) {
+    const s = document.createElement('span');
+    s.textContent = '★';
+    s.style.opacity = i < stars ? '1' : '0.22';
+    el.appendChild(s);
+  }
+  el.style.color = color;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Acelerómetro                                                       */
+/* ------------------------------------------------------------------ */
+function onMotion(e) {
+  if (!dancing) return;
+  const a = e.accelerationIncludingGravity;
+  if (!a || a.x == null) return;
+
+  // Medidor de movimiento real (dato del propio telefono, no del juego)
+  const mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+  const delta = Math.min(Math.abs(mag - lastMag), 18);
+  lastMag = mag;
+  moveLevel = moveLevel * 0.82 + (delta / 18) * 0.18;
+
+  const now = performance.now();
+  if (now - lastMovePaint > 60) {
+    lastMovePaint = now;
+    const fill = $('moveFill');
+    if (fill) fill.style.width = Math.round(Math.min(moveLevel * 260, 100)) + '%';
+  }
+
+  if (now - lastAccel < 8) return;
+  lastAccel = now;
+  send({ type: 'accel', v: [a.x || 0, a.y || 0, a.z || 0] });
+}
+
+function send(obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+function cmd(name, payload) {
+  send({ type: 'cmd', name, payload });
+}
+
+/* ------------------------------------------------------------------ */
+/*  UI                                                                 */
+/* ------------------------------------------------------------------ */
+$('btnConnect').addEventListener('click', () => connect());
+codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
+
+// Al escribir el quinto dígito se empareja solo. askMotion() se llama aquí
+// (dentro del gesto) para que iOS muestre el permiso de sensores.
+let autoCode = '';
+codeInput.addEventListener('input', () => {
+  const v = codeInput.value.replace(/\D/g, '').slice(0, 5);
+  if (codeInput.value !== v) codeInput.value = v;
+  if (v.length !== 5 || autoCode === v || connecting || retrying || ws) return;
+  autoCode = v;
+  const early = askMotion();
+  setTimeout(() => { if (!ws && !connecting) connect(early); }, 350);
+});
+codeInput.addEventListener('keydown', () => { autoCode = ''; }, true);
+
+/** Activa el acelerómetro, pantalla encendida y pantalla completa. */
+async function startSensors(permission) {
+  if (motionOn) {
+    show('pad');
+    return true;
+  }
+
+  readyErr.textContent = '';
+  let perm = permission;
+  if (!perm) {
+    try { perm = await askMotion(); } catch { perm = 'denied'; }
+  }
+  if (perm !== 'granted') {
+    readyErr.textContent = perm === 'denied' ? t('sensorDenied') : t('sensorAskFail');
+    show('ready');
+    return false;
+  }
+
+  window.addEventListener('devicemotion', onMotion);
+  motionOn = true;
+
+  // No se espera: en algunos navegadores requestFullscreen/wakeLock pueden
+  // quedarse pendientes y bloquearían la entrada al panel.
+  try { document.documentElement.requestFullscreen().catch(() => {}); } catch {}
+  try {
+    navigator.wakeLock.request('screen')
+      .then((lock) => { wakeLock = lock; })
+      .catch(() => {});
+  } catch {}
+
+  show('pad');
+  setDancing(false);
+  stateBig.textContent = t('menu');
+
+  let got = false;
+  const probe = (e) => { if (e.accelerationIncludingGravity) got = true; };
+  window.addEventListener('devicemotion', probe);
+  setTimeout(() => {
+    window.removeEventListener('devicemotion', probe);
+    if (!got) {
+      stateBig.textContent = t('noSensors');
+      stateBig.classList.remove('on');
+    }
+  }, 2000);
+  return true;
+}
+
+$('btnStart').addEventListener('click', () => { startSensors(); });
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && !wakeLock) {
+    try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (screens.lobby.classList.contains('active')) layoutCoaches();
+});
+
+document.querySelectorAll('[data-cmd]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    if (navigator.vibrate) navigator.vibrate(18);
+    cmd(btn.dataset.cmd);
+  });
+});
+
+$('btnDance').addEventListener('click', () => {
+  if (navigator.vibrate) navigator.vibrate(80);
+  cmd('start');
+});
+$('btnLobbyBack').addEventListener('click', () => cmd('back'));
+$('btnHome').addEventListener('click', goHome);
+$('btnContinue').addEventListener('click', () => {
+  if (pendingContinue) {
+    send({ type: 'action', command: pendingContinue });
+    pendingContinue = null;
+  } else {
+    cmd('ok');
+  }
+});
+
+$('btnPauseMenu').addEventListener('click', () => cmd('pause'));

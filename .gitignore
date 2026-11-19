@@ -12,6 +12,7 @@ logs/
 cache/
 settings.json
 remote.json
+webhook.txt
 
 # sistema
 Thumbs.db
