@@ -2157,9 +2157,17 @@ const parkedPhones = new Map(); // dev -> entry (sin socket, con GamePhone vivo)
 /** Una sesion de movil: el socket puede ser directo (wifi) o venir del backend. */
 function createPhoneSession(transport) {
   const dev = transport.dev || null;
-  const parked = dev ? parkedPhones.get(dev) : null;
+
+  // El mismo movil puede volver antes de que el servidor haya visto el cierre
+  // del socket anterior. Se reutiliza su jugador para no duplicarlo.
+  let parked = dev ? parkedPhones.get(dev) : null;
+  if (!parked && dev) {
+    for (const entry of room.phones.values()) {
+      if (entry.dev === dev) { parked = entry; break; }
+    }
+  }
   if (parked) {
-    parkedPhones.delete(dev);
+    if (dev) parkedPhones.delete(dev);
     clearTimeout(parked.parkTimer);
     parked.parkTimer = null;
     room.phones.set(parked.id, parked);
@@ -2186,7 +2194,11 @@ function createPhoneSession(transport) {
 
   /** Engancha un socket nuevo a este jugador (primera vez o reconexion). */
   entry.attach = (tr) => {
+    const prev = entry.transport;
     entry.transport = tr;
+    // Si el socket anterior aun no habia cerrado, se descarta sin tocar al
+    // jugador: su handler de cierre ve que ya no es el transporte actual.
+    if (prev && prev !== tr) { try { prev.close(); } catch { /* noop */ } }
     entry.ip = tr.ip || entry.ip;
     tr.onMessage((msg) => {
       if (msg.type === 'ping') { entry.send({ type: 'pong' }); return; }
