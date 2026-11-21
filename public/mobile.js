@@ -40,7 +40,20 @@ let playerName = '';
 let roomCode = '';
 let connecting = false;
 let retrying = false;
+let lastSeen = 0;
+let reconnectTries = 0;
 
+/* Identidad estable del móvil: al reconectar se reutiliza el mismo jugador. */
+let devId = '';
+try { devId = localStorage.getItem('jdDev') || ''; } catch { /* modo privado */ }
+if (!devId) {
+  devId = (self.crypto && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  try { localStorage.setItem('jdDev', devId); } catch { /* modo privado */ }
+}
+
+/* Servida desde el backend (Render): se intenta primero el PC en la red local */
 const remoteMode = document.documentElement.dataset.remote === '1';
 
 const params = new URLSearchParams(location.search);
@@ -81,6 +94,7 @@ const I18N = {
     errSearching: 'Looking for the PC on your network...',
     errRetry: 'Connecting to the server... ({n}/3)',
     errLost: 'Connection lost. Join again.',
+    errReconnecting: 'Connection lost. Reconnecting... ({n}/3)',
     errConnecting: 'Connecting to the server...',
     errNoConn: 'Could not connect. Check the code and the network.',
     errNoRoom: 'That code is not active. Open the room on the PC.',
@@ -125,6 +139,7 @@ const I18N = {
     errSearching: 'Buscando el PC en la red...',
     errRetry: 'Conectando con el servidor... ({n}/3)',
     errLost: 'Se perdió la conexión. Vuelve a entrar.',
+    errReconnecting: 'Se perdió la conexión. Reconectando... ({n}/3)',
     errConnecting: 'Conectando con el servidor...',
     errNoConn: 'No se pudo conectar. Revisa el código y la red.',
     errNoRoom: 'Ese código no está activo. Abre la sala en el PC.',
@@ -169,6 +184,7 @@ const I18N = {
     errSearching: 'Procurando o PC na rede...',
     errRetry: 'Conectando ao servidor... ({n}/3)',
     errLost: 'Conexão perdida. Entre de novo.',
+    errReconnecting: 'Conexão perdida. Reconectando... ({n}/3)',
     errConnecting: 'Conectando ao servidor...',
     errNoConn: 'Não foi possível conectar. Confira o código e a rede.',
     errNoRoom: 'Esse código não está ativo. Abra a sala no PC.',
@@ -227,11 +243,13 @@ const gameImg = (p) => {
   if (!p) return '';
   if (/^https?:/i.test(p)) return p;
   const rel = p.startsWith('/') ? p : '/' + p;
-
+  // Remoto: las imagenes del juego las pide el backend al PC (cacheables)
   if (remoteMode && roomCode) return `/g/${roomCode}${rel}`;
   return '/game' + rel;
 };
 
+/** Nombre real del perfil que esta usando el juego (no "usuario 1").
+    Si trae acentos, se usa Segoe: la DEMO de RBNo los dibuja como cajas. */
 function jdName(el, text) {
   el.textContent = text;
   el.classList.toggle('jd-fallback', /[^\x20-\x7E]/.test(text));
@@ -244,6 +262,7 @@ function setName(n) {
   jdName(connName, v);
 }
 
+/** Avatar del perfil, servido en local por el servidor. */
 function setAvatar(url) {
   if (!url) return;
   if (playerAvatar.getAttribute('src') === url) return;
@@ -251,6 +270,7 @@ function setAvatar(url) {
   playerAvatar.style.display = 'block';
 }
 
+/** Linea discreta con el estado de la sala online del exe. */
 function setOnline(on) {
   $('btnDance').textContent = on && on.requiresReady
     ? t(on.localReady ? 'danceCancelReady' : 'danceReady')
@@ -312,6 +332,13 @@ function goHome() {
   show('code');
 }
 
+/* ------------------------------------------------------------------ */
+/*  Conexión                                                           */
+/* ------------------------------------------------------------------ */
+/**
+ * Intenta hablar directo con el PC (misma wifi). Si la red o el
+ * certificado no lo permiten, se sigue por el backend sin avisar.
+ */
 function probeHost(ip, port) {
   return new Promise((resolve) => {
     let socket = null;
@@ -320,13 +347,15 @@ function probeHost(ip, port) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (!value && socket) { try { socket.close(); } catch {  } }
+      if (!value && socket) { try { socket.close(); } catch { /* noop */ } }
       resolve(value ? { socket, ip, port } : null);
     };
     const timer = setTimeout(() => finish(null), 1400);
 
     try {
-      socket = new WebSocket(`wss://${ip}:${port}/ws/phone?code=${roomCode}`);
+      socket = new WebSocket(
+        `wss://${ip}:${port}/ws/phone?code=${roomCode}&dev=${encodeURIComponent(devId)}`
+      );
     } catch {
       finish(null);
       return;
@@ -356,7 +385,7 @@ function probeDirect() {
             if (!pending && !winner) resolve(null);
             return;
           }
-          if (winner) { try { hit.socket.close(); } catch {  } return; }
+          if (winner) { try { hit.socket.close(); } catch { /* noop */ } return; }
           winner = hit;
           resolve(hit);
         });
@@ -382,8 +411,10 @@ async function connect() {
     codeErr.textContent = t('errSearching');
     const hit = await probeDirect();
 
+    // El PC respondio (misma wifi y certificado aceptado): todo va directo,
+    // sin pasar por el backend ni para imagenes ni para los sensores.
     if (hit) {
-      try { hit.socket.close(); } catch {  }
+      try { hit.socket.close(); } catch { /* noop */ }
       location.replace(`https://${hit.ip}:${hit.port}/m?code=${code}`);
       return;
     }
@@ -394,15 +425,20 @@ async function connect() {
   startRelay(0);
 }
 
+/** WebSocket contra el backend (o el PC, si la web se sirve desde él). */
 function startRelay(attempt) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  attachSocket(new WebSocket(`${proto}://${location.host}/ws/phone?code=${roomCode}`), attempt);
+  attachSocket(new WebSocket(
+    `${proto}://${location.host}/ws/phone?code=${roomCode}&dev=${encodeURIComponent(devId)}`
+  ), attempt);
 }
 
 function attachSocket(socket, attempt) {
   ws = socket;
   let opened = false;
+  lastSeen = Date.now();
 
+  // El socket directo puede llegar ya abierto desde probeHost
   if (socket.readyState === 1) {
     opened = true;
     show('ready');
@@ -410,15 +446,32 @@ function attachSocket(socket, attempt) {
     socket.addEventListener('open', () => {
       opened = true;
       retrying = false;
+      reconnectTries = 0;
       codeErr.textContent = '';
       show('ready');
     });
   }
 
+  // Latido: si el PC no contesta en 40 s el socket está muerto aunque el
+  // móvil aún lo crea abierto (pantalla bloqueada, cambio de red).
+  const pingTimer = setInterval(() => {
+    if (socket.readyState !== 1) return;
+    if (Date.now() - lastSeen > 40000) {
+      try { socket.close(); } catch { /* noop */ }
+      return;
+    }
+    try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+  }, 12000);
+
   socket.addEventListener('close', () => {
+    clearInterval(pingTimer);
     if (ws === socket) ws = null;
     if (socket.jdManual) return;
 
+    const inPad = screens.pad.classList.contains('active') ||
+      screens.lobby.classList.contains('active');
+
+    // Render duerme el servicio: los primeros intentos pueden tardar en despertar
     if (!opened && remoteMode && !socket.jdNoRetry && attempt < 2) {
       retrying = true;
       codeErr.textContent = t('errRetry', { n: attempt + 2 });
@@ -429,10 +482,21 @@ function attachSocket(socket, attempt) {
       return;
     }
 
-    if (screens.pad.classList.contains('active') || screens.lobby.classList.contains('active') ||
-        screens.ready.classList.contains('active')) {
+    // Ya estaba dentro: el servidor guarda al jugador unos segundos, así que
+    // se reconecta sin volver a la pantalla del código.
+    if (opened && inPad && reconnectTries < 3) {
+      reconnectTries += 1;
+      codeErr.textContent = t('errReconnecting', { n: reconnectTries });
       setTimeout(() => {
         if (ws) return;
+        startRelay(0);
+      }, 1200 + reconnectTries * 1200);
+      return;
+    }
+
+    if (inPad || screens.ready.classList.contains('active')) {
+      setTimeout(() => {
+        if (ws) return; // ya hay otra conexion en marcha
         show('code');
         codeErr.textContent = t('errLost');
       }, 800);
@@ -446,9 +510,11 @@ function attachSocket(socket, attempt) {
   });
 
   socket.addEventListener('message', (ev) => {
+    lastSeen = Date.now();
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
 
+    if (msg.type === 'pong') return;
     if (msg.type === 'error') {
       socket.jdNoRetry = true;
       codeErr.textContent = msg.error === 'no-room' ? t('errNoRoom') : t('errRemote');
@@ -484,6 +550,9 @@ function attachSocket(socket, attempt) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/*  Estados que manda el juego                                         */
+/* ------------------------------------------------------------------ */
 function handleGame(m) {
   if (!m) return;
 
@@ -509,6 +578,8 @@ function handleGame(m) {
   const sd = m.setupData;
   if (!sd) return;
 
+  // Popup del juego (tutorial, avisos). Solo si hay UNA opción clara:
+  // los avisos de "si/no" no funcionan bien desde el movil, asi que se ignoran.
   if (m.isPopup === 1 && sd.mainCarousel) {
     const items = visibleItems(sd.mainCarousel);
     if (items.length === 1) {
@@ -517,6 +588,7 @@ function handleGame(m) {
     }
   }
 
+  // Selección de coach
   if (sd.lobbySetup) {
     setDancing(false);
     const prof = sd.lobbySetup.changeProfile;
@@ -532,6 +604,7 @@ function handleGame(m) {
     return;
   }
 
+  // Comienza la canción
   if (sd.gameplaySetup) {
     const img = sd.gameplaySetup.coachImage || sd.gameplaySetup.image;
     if (img) danceAvatar.src = gameImg(img);
@@ -541,10 +614,12 @@ function handleGame(m) {
     return;
   }
 
+  // Resultado
   if (sd.recapSetup) {
     setDancing(false);
     const recap = sd.recapSetup.recapData || {};
 
+    // El boton "Continuar" del recap trae su propio comando literal
     pendingContinue = null;
     const cont = visibleItems(sd.mainCarousel).find((i) => /continuar|continue|ok/i.test(i.title || ''));
     if (cont) pendingContinue = actionOf(cont);
@@ -554,6 +629,7 @@ function handleGame(m) {
     return;
   }
 
+  // Menú / carrusel / pausa
   if (sd.mainCarousel) {
     setDancing(false);
     stateBig.textContent = t('menu');
@@ -569,6 +645,9 @@ function handleGame(m) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Popups del juego (una sola opcion)                                 */
+/* ------------------------------------------------------------------ */
 function visibleItems(carousel) {
   const rows = (carousel && carousel.rows) || [];
   return rows
@@ -605,6 +684,7 @@ function renderPopup(item) {
   title.textContent = '';
   title.style.display = 'none';
 
+  // La tarjeta solo aparece si el juego manda una ilustracion real
   const card = pic.parentElement;
   card.style.display = img ? 'flex' : 'none';
 
@@ -630,6 +710,10 @@ function setDancing(on) {
   if (on) stateBig.textContent = t('danceDo');
 }
 
+/* ------------------------------------------------------------------ */
+/*  Coaches                                                            */
+/* ------------------------------------------------------------------ */
+/** Placa con el nombre del jugador, debajo de los personajes. */
 function setLobbyProfile(name, image) {
   const n = String(name || '').trim();
   const label = n && n.indexOf('[icon:') !== 0 ? n : '';
@@ -655,6 +739,12 @@ function selectCoach(i) {
   cmd('coach', { index: i });
 }
 
+/* ------------------------------------------------------------------ */
+/*  Figuras de los coaches                                             */
+/* ------------------------------------------------------------------ */
+/* Los PNG del juego traen margenes transparentes. Se mide el recorte
+   real (caja alfa) para que la figura ocupe toda la altura disponible
+   y no quede pequeña dentro de un rectangulo. */
 function measureFigure(img) {
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
@@ -704,6 +794,7 @@ function measureFigure(img) {
   }
 }
 
+/** Coloca la imagen dentro del boton para que la caja alfa llene width x height. */
 function placeFigure(img, box, width, height) {
   const b = box || { x0: 0, y0: 0, x1: img.naturalWidth, y1: img.naturalHeight, nw: img.naturalWidth, nh: img.naturalHeight };
   const bw = Math.max(1, b.x1 - b.x0);
@@ -716,6 +807,7 @@ function placeFigure(img, box, width, height) {
   img.style.bottom = Math.round(-(b.nh - b.y1) * s) + 'px';
 }
 
+/** Reparte las figuras: altura comun, solapamiento justo y sin salirse del ancho. */
 function layoutCoaches() {
   const stage = coachStage;
   const btns = [...stage.querySelectorAll('.coach')];
@@ -736,6 +828,7 @@ function layoutCoaches() {
   const n = btns.length;
   const scales = btns.map((b) => (b.classList.contains('sel') ? 1.12 : 0.76));
 
+  // Altura base: el elegido (x1.12) cabe entero en la pista
   let h = Math.min(sh * 0.88, 460);
   let ov = 0;
 
@@ -769,6 +862,7 @@ function renderCoaches(list) {
   const sig = coaches.map((c) => gameImg(c.image || c.imageUrl || c.coachImage)).join('|');
   $('lobbyCount').textContent = coaches.length ? `${coaches.length} coach${coaches.length === 1 ? '' : 's'}` : '';
 
+  // Mismo reparto de coaches: solo se refresca la seleccion (sin reiniciar la animacion)
   if (coaches.length && sig === coachSig) {
     [...coachStage.children].forEach((el, j) => {
       if (el.classList.contains('coach')) el.classList.toggle('sel', j === selectedCoach);
@@ -825,6 +919,9 @@ function renderCoaches(list) {
   requestAnimationFrame(layoutCoaches);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Puntaje                                                            */
+/* ------------------------------------------------------------------ */
 function renderScore(score, realStars) {
   let stars = typeof realStars === 'number' ? realStars : 0;
   const color = '#e9e9ef';
@@ -855,11 +952,15 @@ function renderScore(score, realStars) {
   el.style.color = color;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Acelerómetro                                                       */
+/* ------------------------------------------------------------------ */
 function onMotion(e) {
   if (!dancing) return;
   const a = e.accelerationIncludingGravity;
   if (!a || a.x == null) return;
 
+  // Medidor de movimiento real (dato del propio telefono, no del juego)
   const mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
   const delta = Math.min(Math.abs(mag - lastMag), 18);
   lastMag = mag;
@@ -885,6 +986,9 @@ function cmd(name, payload) {
   send({ type: 'cmd', name, payload });
 }
 
+/* ------------------------------------------------------------------ */
+/*  UI                                                                 */
+/* ------------------------------------------------------------------ */
 $('btnConnect').addEventListener('click', connect);
 codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
 
@@ -925,9 +1029,28 @@ $('btnStart').addEventListener('click', async () => {
 });
 
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && !wakeLock) {
+  if (document.visibilityState !== 'visible') return;
+  if (!wakeLock) {
     try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
   }
+  // Al volver de segundo plano el socket puede haber muerto: se reconecta
+  // sin pasar por la pantalla del código.
+  if (roomCode && !ws && !connecting && !retrying &&
+      (screens.pad.classList.contains('active') || screens.lobby.classList.contains('active'))) {
+    reconnectTries = 0;
+    startRelay(0);
+  }
+});
+
+// Al cerrar o cambiar de app se avisa al PC para que quite al jugador ya,
+// sin esperar al latido (el móvil puede no cerrar el socket por su cuenta).
+window.addEventListener('pagehide', () => {
+  const s = ws;
+  if (!s) return;
+  ws = null;
+  s.jdManual = true;
+  try { s.send(JSON.stringify({ type: 'bye' })); } catch {}
+  try { s.close(1000); } catch {}
 });
 
 window.addEventListener('resize', () => {

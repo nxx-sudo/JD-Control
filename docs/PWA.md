@@ -1,98 +1,99 @@
-# JD CONTROL - PWA del móvil
+# JD CONTROL - Phone app (PWA)
 
-Versión web instalable del controlador. Se sirve como sitio estático (GitHub
-Pages) y se conecta al PC por el túnel de Cloudflare, así que funciona en
-Android, iPhone y en cualquier red sin instalar nada.
+Installable web version of the phone controller. It runs from a static site
+(GitHub Pages) and connects to your PC through its Cloudflare tunnel, so it
+works on Android, iPhone and any network without installing an app store
+package.
 
 ```
-PWA (GitHub Pages)  --1. código-->  backend de emparejamiento (Render)
+PWA (GitHub Pages)  --1. code-->  matchmaking backend (Render)
         |                                   |
-        |<---------- 2. URL del túnel -------+
+        |<---------- 2. tunnel URL ---------+
         |
-        +--3. WSS + imágenes-->  túnel del PC  -->  server.js  -->  Legacy.exe
+        +--3. WSS + images-->  PC tunnel  -->  server.js  -->  Legacy.exe
 ```
 
-La URL del túnel cambia en cada sesión. La PWA nunca la escribe el usuario: pide
-el código de 5 dígitos al backend y este le devuelve el túnel que el panel
-publicó para esa sala.
+The tunnel address changes every time the room opens. You never type it: the
+app asks the matchmaking backend for the tunnel that the panel published for
+your 5-digit code.
 
-## Qué hace
+## What you get
 
-- Pide el código de 5 dígitos que muestra el panel.
-- Al escribir el quinto dígito se empareja sola (no hace falta pulsar CONECTAR).
-- Pide el permiso de sensores dentro de ese gesto, como exige iOS.
-- Conecta el WebSocket directo al túnel (`wss://<túnel>/ws/phone?code=...`).
-- Pide las imágenes del juego y los avatares al túnel.
-- Si el túnel falla, vuelve a preguntar al backend y reintenta.
-- Se puede instalar en la pantalla de inicio (manifest + service worker).
+- Enter the 5-digit code shown on the JD CONTROL panel.
+- It pairs automatically after the fifth digit; there is no extra CONNECT step
+  once the code is complete.
+- It asks for motion permission inside that tap, as iOS requires.
+- It opens the game WebSocket directly against the tunnel and loads the game
+  images and avatars from there.
+- If the room is not published yet or the backend is waking up, it retries
+  instead of failing on the first attempt.
+- If the connection drops during a song, it reconnects and keeps the same
+  player instead of adding a second one.
+- It can be installed on the home screen and opens full screen.
 
-## Archivos
+## Install on your phone
 
-| Archivo | Para qué |
+1. Open **https://nxx-sudo.github.io/JD-Control/** in Chrome (Android) or
+   Safari (iPhone).
+2. Open **JD CONTROL** on the PC and press **Open server**. The panel shows the
+   room code and a QR.
+3. On the phone, type the 5-digit code. The app connects and asks for motion
+   access: allow it, otherwise the arrows still work but the game cannot score
+   your moves.
+4. Optional: use the browser menu and choose **Add to Home screen** / **Install
+   app**. The icon then opens the controller directly.
+
+The same page works for every player: each phone that joins takes one player in
+the room.
+
+## If the connection fails
+
+- **The code is not found**: the room may still be opening. Wait a few seconds
+  and try again; the panel publishes it automatically.
+- **The first try is slow**: the free backend can be asleep and takes a moment
+  to wake up. The app keeps retrying for a few seconds.
+- **The screen turned off or you changed apps**: return to the app. It
+  reconnects on its own within a few seconds and restores your player.
+- **You closed the app**: open it again and type the code; if you come back
+  quickly the same player is reused.
+- **Motion does not work**: check that the page uses HTTPS (the GitHub Pages
+  address does), allow motion access in the browser settings and reload. On
+  iPhone the permission can only be requested by tapping the page.
+
+## URL options
+
+| Parameter | Use |
 |---|---|
-| `index.html` | Interfaz (la misma del móvil del túnel, con rutas relativas) |
-| `mobile.js` | Emparejamiento, WebSocket, sensores, imágenes y textos ES/EN/PT |
-| `manifest.webmanifest` | Nombre, iconos y modo `standalone` |
-| `sw.js` | Caché de la interfaz para abrirla sin conexión |
-| `icon-*.png`, `apple-touch-icon.png`, `favicon-32.png` | Iconos |
-| `fonts/` | RBNo2.1 Black (DEMO) y su licencia |
+| `?code=12345` | Pre-fills the code |
+| `?backend=https://...` | Uses another matchmaking backend (saved for next time) |
+| `?host=https://something.trycloudflare.com` | Skips the backend and uses that tunnel directly (advanced/testing) |
 
-El service worker solo cachea archivos del mismo origen. El backend y el túnel
-son otro origen y nunca se interceptan.
+The default backend is `https://jd-remote.onrender.com`.
 
-## Parámetros de la URL
+## Privacy and security
 
-| Parámetro | Uso |
-|---|---|
-| `?code=12345` | Rellena el código; se empareja al pulsar CONECTAR |
-| `?backend=https://...` | Cambia el backend de emparejamiento (se guarda en `localStorage`) |
-| `?host=https://algo.trycloudflare.com` | Se salta el backend y usa ese túnel (pruebas) |
+- The backend only stores `code -> tunnel` for a few minutes. The room is
+  removed when you close it or when the PC stops publishing it.
+- Only `*.trycloudflare.com` tunnels are accepted, and the backend checks that
+  the tunnel really answers for that code before publishing it.
+- The game traffic, sensors and images go directly between the phone and your
+  PC tunnel; they do not pass through the backend.
+- There are no accounts, tokens or personal data in the app.
 
-Por defecto el backend es `https://jd-remote.onrender.com`.
+## Notes
 
-## Probar en local
+- **iPhone/iPad**: motion permission is requested the first time you connect.
+  If you deny it, the app explains how to enable it again.
+- **Screen lock**: the app asks the browser to keep the screen awake, but the
+  browser may ignore it. Keeping the app in the foreground gives the best
+  result.
+- **HTTPS**: motion sensors and installability require a secure origin. GitHub
+  Pages and the tunnel already are; a plain local IP is not.
+- **Offline**: the interface is cached so it opens without a connection, but
+  joining a room still needs the PC online.
 
-Cualquier servidor estático vale; el service worker necesita `http://localhost`
-o HTTPS:
+## Credits
 
-```bash
-npx serve pwa
-# o
-python -m http.server 8092 --directory pwa
-```
-
-Abre `http://localhost:8092/?code=<código del panel>`. En escritorio Chromium
-el acelerómetro no existe o se deniega: es normal, el pad solo se usa en el
-móvil. Para verlo en el PC se puede llamar `startSensors('granted')` desde la
-consola.
-
-## Límites que conviene conocer
-
-- **iOS**: el permiso de movimiento (`DeviceMotionEvent.requestPermission()`)
-  solo se puede pedir dentro de un gesto del usuario. Por eso se pide al pulsar
-  CONECTAR o al escribir el quinto dígito. Si se deniega, la PWA muestra la
-  pantalla LISTO con el aviso y deja activarlo a mano.
-- **Pantalla encendida**: `navigator.wakeLock` existe desde iOS 16.4 y puede
-  fallar; nunca bloquea la entrada al pad.
-- **HTTPS**: los sensores y el service worker exigen un origen seguro. Pages y
-  el túnel ya lo son; una IP local por HTTP no.
-- **Suspensión**: si el móvil bloquea la pestaña, el WebSocket se corta y la PWA
-  vuelve a la pantalla del código.
-- **Backend dormido**: el plan gratuito de Render tarda en despertar. La PWA
-  reintenta la consulta dos veces antes de dar error.
-
-## Seguridad
-
-- El backend solo acepta túneles `*.trycloudflare.com` y comprueba que el túnel
-  responde `GET /api/room?code=<código>` antes de publicarlo (prueba de
-  propiedad). No hay tokens en la PWA.
-- Un código es válido mientras el panel lo publica (latido cada 45 s, caduca a
-  los 3 min). Al cerrar la sala el panel lo despublica.
-- La PWA no habla con el backend para los sensores: solo para resolver el
-  código. El tráfico del juego va directo al túnel.
-
-## Créditos
-
-- Tipografía RBNo2.1 Black (DEMO), ver `fonts/LICENSE-RBNo2.1.txt`.
-- Los iconos salen del icono de JD CONTROL.
-- Proyecto bajo GNU GPL v3, igual que el resto de JD CONTROL.
+- Typeface RBNo2.1 Black (DEMO), see `fonts/LICENSE-RBNo2.1.txt`.
+- Icons are based on the JD CONTROL icon.
+- GNU GPL v3, same as the rest of JD CONTROL.

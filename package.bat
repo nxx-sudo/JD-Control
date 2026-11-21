@@ -7,7 +7,7 @@ rem Carpeta lista para compartir: dist\JD CONTROL (+ dist\JD CONTROL.zip).
 rem No incluye remote.json (legado), cert\ (clave privada de este PC),
 rem cache\, logs\ ni backup\: cada PC genera los suyos.
 
-set OUT=dist\JD CONTROL 0.1 BETA
+set OUT=dist\JD CONTROL 0.2 BETA
 set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 if not exist "%CSC%" set CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe
 
@@ -48,7 +48,7 @@ for /f "delims=" %%N in ('where node 2^>nul') do (
 if not exist "%OUT%\runtime\node.exe" echo AVISO: no se encontro node.exe; el paquete necesitara Node.js instalado.
 
 echo Comprimiendo ...
-if exist "dist\JD CONTROL 0.1 BETA.zip" del /q "dist\JD CONTROL 0.1 BETA.zip"
+if exist "dist\JD CONTROL 0.2 BETA.zip" del /q "dist\JD CONTROL 0.2 BETA.zip"
 powershell -NoProfile -Command "Compress-Archive -Path '%OUT%' -DestinationPath '%OUT%.zip'"
 if errorlevel 1 goto :error
 

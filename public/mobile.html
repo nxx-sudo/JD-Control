@@ -285,6 +285,7 @@
 </head>
 <body>
 
+  <!-- 1. Código (sin tarjeta, sobre el fondo liso) -->
   <div id="scr-code" class="screen active">
     <div class="brand">JD <span>CONTROL</span></div>
     <input id="codeInput" class="code" inputmode="numeric" maxlength="5" placeholder="00000" autocomplete="off">
@@ -293,6 +294,7 @@
     <div class="note" data-t="codeNote">Type the 5-digit code shown on the PC.</div>
   </div>
 
+  <!-- 2. Permisos -->
   <div id="scr-ready" class="screen">
     <div class="brand" data-t="brandReady">READY</div>
     <div class="note" data-t="readyNote">To score I need the phone accelerometer. Tap the
@@ -301,6 +303,7 @@
     <div id="readyErr" class="err"></div>
   </div>
 
+  <!-- 3. Menú / baile -->
   <div id="scr-pad" class="screen">
     <div id="pad">
       <div class="topbar">
@@ -360,6 +363,7 @@
     </div>
   </div>
 
+  <!-- 4. Selección de coach -->
   <div id="scr-lobby" class="screen">
     <div class="lobby-head">
       <div class="game-title" data-t="pickCoach">PICK YOUR COACH</div>
@@ -378,6 +382,7 @@
     </div>
   </div>
 
+  <!-- 5. Puntaje -->
   <div id="scr-score" class="screen">
     <div class="flat">
       <div id="scoreRank">JUST DANCER</div>
@@ -387,6 +392,7 @@
     <button id="btnContinue" class="btn-main" data-t="pcontinue">CONTINUE</button>
   </div>
 
+  <!-- 6. Popup del juego (tutorial, avisos, etc.) -->
   <div id="scr-popup" class="screen">
     <div class="flat" id="popupCard">
       <img id="popupImg" alt="" style="max-width:100%; max-height:220px; object-fit:contain;">

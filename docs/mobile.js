@@ -53,12 +53,42 @@ let motionAsk = null;
 const params = new URLSearchParams(location.search);
 let storedBackend = '';
 try { storedBackend = localStorage.getItem('jdBackend') || ''; } catch { /* modo privado */ }
+
+/* Un backend guardado en pruebas (127.0.0.1, IP local) no sirve en el móvil. */
+function usableBackend(value) {
+  if (!value) return false;
+  try {
+    const u = new URL(value);
+    if (!/^https?:$/.test(u.protocol)) return false;
+    const local = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(u.hostname);
+    const here = /^(localhost|127\.)/i.test(location.hostname);
+    return !(local && !here);
+  } catch {
+    return false;
+  }
+}
+if (!usableBackend(storedBackend)) storedBackend = '';
+
 const BACKEND = String(
   params.get('backend') || storedBackend || 'https://jd-remote.onrender.com'
 ).replace(/\/+$/, '');
 if (params.get('backend')) {
   try { localStorage.setItem('jdBackend', BACKEND); } catch { /* modo privado */ }
 }
+
+/* Identidad estable del móvil: al reconectar se reutiliza su jugador en vez
+   de crear otro (el servidor guarda el GamePhone unos segundos). */
+let devId = '';
+try { devId = localStorage.getItem('jdDev') || ''; } catch { /* modo privado */ }
+if (!devId) {
+  devId = (self.crypto && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  try { localStorage.setItem('jdDev', devId); } catch { /* modo privado */ }
+}
+
+let lastSeen = 0;
+let reconnectTries = 0;
 
 const hostParam = String(params.get('host') || '').replace(/\/+$/, '');
 if (/^https?:\/\//i.test(hostParam)) hostUrl = hostParam;
@@ -102,6 +132,7 @@ const I18N = {
     errSearching: 'Looking for the PC on your network...',
     errRetry: 'Connecting to the server... ({n}/3)',
     errLost: 'Connection lost. Join again.',
+    errReconnecting: 'Connection lost. Reconnecting... ({n}/3)',
     errConnecting: 'Connecting to the server...',
     errNoConn: 'Could not connect. Check the code and the network.',
     errNoRoom: 'That code is not active. Open the room on the PC.',
@@ -152,6 +183,7 @@ const I18N = {
     errSearching: 'Buscando el PC en la red...',
     errRetry: 'Conectando con el servidor... ({n}/3)',
     errLost: 'Se perdió la conexión. Vuelve a entrar.',
+    errReconnecting: 'Se perdió la conexión. Reconectando... ({n}/3)',
     errConnecting: 'Conectando con el servidor...',
     errNoConn: 'No se pudo conectar. Revisa el código y la red.',
     errNoRoom: 'Ese código no está activo. Abre la sala en el PC.',
@@ -202,6 +234,7 @@ const I18N = {
     errSearching: 'Procurando o PC na rede...',
     errRetry: 'Conectando ao servidor... ({n}/3)',
     errLost: 'Conexão perdida. Entre de novo.',
+    errReconnecting: 'Conexão perdida. Reconectando... ({n}/3)',
     errConnecting: 'Conectando ao servidor...',
     errNoConn: 'Não foi possível conectar. Confira o código e a rede.',
     errNoRoom: 'Esse código não está ativo. Abra a sala no PC.',
@@ -407,25 +440,29 @@ async function connect(earlyMotion) {
   roomCode = code;
   motionAsk = earlyMotion || askMotion();
 
+  // El panel puede tardar en publicar el túnel y Render en despertar: se
+  // reintenta con espera creciente en vez de rendirse a la primera.
+  const delays = [0, 2500, 5000, 8000, 12000];
   let info = null;
-  try {
-    info = await lookupRoom(code);
-    // El plan gratuito de Render duerme: un fallo puede ser el arranque.
-    for (let i = 0; i < 2 && (!info || info.error); i += 1) {
-      codeErr.textContent = t('errWake');
-      await new Promise((r) => setTimeout(r, 2500 + i * 2500));
-      info = await lookupRoom(code);
+  let last = '';
+  for (let i = 0; i < delays.length; i += 1) {
+    if (delays[i]) {
+      codeErr.textContent = i >= 2 ? t('errWake') : t('errLooking');
+      await new Promise((r) => setTimeout(r, delays[i]));
+      if (ws) { connecting = false; return; }
     }
-  } catch {
-    info = { error: 'lookup' };
+    try { info = await lookupRoom(code); } catch { info = { error: 'lookup' }; }
+    if (info && !info.error) break;
+    last = (info && info.error) || 'lookup';
+    if (last === 'bad-host') break;
   }
 
   if (!info || info.error) {
     connecting = false;
     motionAsk = null;
-    codeErr.textContent = info && info.error === 'no-room'
+    codeErr.textContent = last === 'no-room'
       ? t('errNoRoom')
-      : info && info.error === 'bad-host'
+      : last === 'bad-host'
         ? t('errHost')
         : t('errLookup');
     return;
@@ -440,22 +477,26 @@ async function connect(earlyMotion) {
 function startRelay(attempt) {
   if (!hostUrl) return;
   const base = hostUrl.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:');
-  attachSocket(new WebSocket(`${base}/ws/phone?code=${roomCode}`), attempt);
+  const query = `code=${encodeURIComponent(roomCode)}&dev=${encodeURIComponent(devId)}`;
+  attachSocket(new WebSocket(`${base}/ws/phone?${query}`), attempt);
 }
 
 function attachSocket(socket, attempt) {
   ws = socket;
   let opened = false;
+  lastSeen = Date.now();
 
   const joined = async () => {
     opened = true;
     retrying = false;
+    reconnectTries = 0;
     codeErr.textContent = '';
     const perm = motionAsk ? await motionAsk : 'granted';
     motionAsk = null;
     if (perm === 'granted') {
       await startSensors('granted');
-    } else {
+    } else if (!screens.pad.classList.contains('active') &&
+               !screens.lobby.classList.contains('active')) {
       show('ready');
       readyErr.textContent = t('sensorDenied');
     }
@@ -464,9 +505,24 @@ function attachSocket(socket, attempt) {
   if (socket.readyState === 1) joined();
   else socket.addEventListener('open', joined);
 
+  // Latido: si el servidor no contesta en 40 s, el socket está muerto aunque
+  // el móvil aún lo crea abierto (pantalla bloqueada, cambio de red).
+  const pingTimer = setInterval(() => {
+    if (socket.readyState !== 1) return;
+    if (Date.now() - lastSeen > 40000) {
+      try { socket.close(); } catch { /* noop */ }
+      return;
+    }
+    try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+  }, 12000);
+
   socket.addEventListener('close', () => {
+    clearInterval(pingTimer);
     if (ws === socket) ws = null;
     if (socket.jdManual) return;
+
+    const inPad = screens.pad.classList.contains('active') ||
+      screens.lobby.classList.contains('active');
 
     // El túnel puede tardar o Cloudflare puede haber cambiado la URL:
     // se vuelve a preguntar al backend y se reintenta.
@@ -485,8 +541,23 @@ function attachSocket(socket, attempt) {
       return;
     }
 
-    if (screens.pad.classList.contains('active') || screens.lobby.classList.contains('active') ||
-        screens.ready.classList.contains('active')) {
+    // Ya estaba dentro: no se echa al jugador a la pantalla del código por
+    // un corte breve; se reconecta y el servidor le devuelve su jugador.
+    if (opened && inPad && reconnectTries < 3) {
+      reconnectTries += 1;
+      codeErr.textContent = t('errReconnecting', { n: reconnectTries });
+      setTimeout(async () => {
+        if (ws) return;
+        try {
+          const info = await lookupRoom(roomCode);
+          if (info && !info.error) hostUrl = info.tunnel;
+        } catch { /* se usa el túnel anterior */ }
+        startRelay(0);
+      }, 1200 + reconnectTries * 1200);
+      return;
+    }
+
+    if (inPad || screens.ready.classList.contains('active')) {
       setTimeout(() => {
         if (ws) return; // ya hay otra conexion en marcha
         show('code');
@@ -500,8 +571,10 @@ function attachSocket(socket, attempt) {
   });
 
   socket.addEventListener('message', (ev) => {
+    lastSeen = Date.now();
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'pong') return;
 
     if (msg.type === 'error') {
       socket.jdNoRetry = true;
@@ -1045,9 +1118,28 @@ async function startSensors(permission) {
 $('btnStart').addEventListener('click', () => { startSensors(); });
 
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && !wakeLock) {
+  if (document.visibilityState !== 'visible') return;
+  if (!wakeLock) {
     try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
   }
+  // Al volver de segundo plano el socket puede haber muerto: se reconecta
+  // sin pasar por la pantalla del código.
+  if (roomCode && hostUrl && !ws && !connecting && !retrying &&
+      (screens.pad.classList.contains('active') || screens.lobby.classList.contains('active'))) {
+    reconnectTries = 0;
+    startRelay(0);
+  }
+});
+
+// Al cerrar o cambiar de app se avisa al PC para que quite al jugador ya,
+// sin esperar al latido (el móvil puede no cerrar el socket por su cuenta).
+window.addEventListener('pagehide', () => {
+  const s = ws;
+  if (!s) return;
+  ws = null;
+  s.jdManual = true;
+  try { s.send(JSON.stringify({ type: 'bye' })); } catch {}
+  try { s.close(1000); } catch {}
 });
 
 window.addEventListener('resize', () => {

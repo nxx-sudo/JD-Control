@@ -6,7 +6,7 @@ using System.Web.Script.Serialization;
 
 namespace JDControl
 {
-
+    /** Idiomas del panel: ingles, espanol y portugues (Brasil). */
     static class L
     {
         public const string EN = "en";
@@ -15,6 +15,7 @@ namespace JDControl
 
         public static string Code = EN;
 
+        /* Cada clave: [ingles, espanol, portugues] */
         static readonly Dictionary<string, string[]> Map = new Dictionary<string, string[]>
         {
             { "subLocal",       new[] { "LOCAL ROOM", "SALA LOCAL", "SALA LOCAL" } },
@@ -67,6 +68,16 @@ namespace JDControl
             { "stateMenu",      new[] { "In the game", "En el menú", "No jogo" } },
             { "stateOff",       new[] { "Out of the game", "Fuera del juego", "Fora do jogo" } },
 
+            { "devPad",         new[] { "Controller", "Mando", "Controle" } },
+            { "devKinect",      new[] { "Kinect", "Kinect", "Kinect" } },
+            { "devCamera",      new[] { "Camera", "Cámara", "Câmera" } },
+            { "devJoycon",      new[] { "Joy-Con", "Joy-Con", "Joy-Con" } },
+            { "devWiimote",     new[] { "Wiimote", "Wiimote", "Wiimote" } },
+            { "devPsmove",      new[] { "PS Move", "PS Move", "PS Move" } },
+            { "devDs4",         new[] { "DualShock", "DualShock", "DualShock" } },
+            { "devDance",       new[] { "Can dance", "Puede bailar", "Pode dançar" } },
+            { "devMenusOnly",   new[] { "Menus only", "Solo menús", "Só menus" } },
+
             { "copyCode",       new[] { "Copy code", "Copiar código", "Copiar código" } },
             { "copyLink",       new[] { "Copy phone link", "Copiar enlace del móvil", "Copiar link do celular" } },
             { "copyIp",         new[] { "Copy host IP", "Copiar IP del anfitrión", "Copiar IP do anfitrião" } },
@@ -107,6 +118,21 @@ namespace JDControl
             { "checkUpdatesTip",new[] { "Checks the public repository for a newer release when the panel starts.",
                                         "Consulta el repositorio público al abrir el panel y avisa si hay versión nueva.",
                                         "Consulta o repositório público ao abrir o painel e avisa se houver versão nova." } },
+            { "sendLogs",       new[] { "Send logs for analysis and bug fixes",
+                                        "Enviar logs para análisis y arreglo de bugs",
+                                        "Enviar logs para análise e correção de bugs" } },
+            { "sendLogsTip",    new[] { "Uploads server.log, ghost.log and ui.jsonl to the developer's Discord. No video or audio is sent.",
+                                        "Sube server.log, ghost.log y ui.jsonl al Discord del desarrollador. No se envía vídeo ni audio.",
+                                        "Envia server.log, ghost.log e ui.jsonl ao Discord do desenvolvedor. Não envia vídeo nem áudio." } },
+            { "logsSending",    new[] { "Sending logs…", "Enviando logs…", "Enviando logs…" } },
+            { "logsSent",       new[] { "Logs sent. Thank you!", "Logs enviados. ¡Gracias!", "Logs enviados. Obrigado!" } },
+            { "logsFail",       new[] { "Could not send logs: {0}", "No se pudieron enviar los logs: {0}",
+                                        "Não foi possível enviar os logs: {0}" } },
+            { "logsNoHook",     new[] { "Webhook not configured (webhook.txt).",
+                                        "Webhook no configurado (webhook.txt).",
+                                        "Webhook não configurado (webhook.txt)." } },
+            { "logsOff",        new[] { "Logs will not be sent.", "No se enviarán logs.",
+                                        "Os logs não serão enviados." } },
             { "version",        new[] { "Version", "Versión", "Versão" } },
             { "close",          new[] { "CLOSE", "CERRAR", "FECHAR" } },
             { "settingsTip",    new[] { "Settings", "Configuración", "Configurações" } },
@@ -147,10 +173,12 @@ namespace JDControl
         }
     }
 
+    /** settings.json junto al exe: idioma elegido y aviso de actualizaciones. */
     static class Settings
     {
         public static string Lang = "";
         public static bool CheckUpdates = true;
+        public static bool SendLogs = false;
         public static string UpdateUrl = "";
 
         public const string DEFAULT_UPDATE_URL =
@@ -161,6 +189,7 @@ namespace JDControl
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
         }
 
+        /** Idioma del sistema, con ingles como red de seguridad. */
         public static string Detect()
         {
             try
@@ -192,6 +221,8 @@ namespace JDControl
                 }
                 if (st.ContainsKey("checkUpdates") && st["checkUpdates"] != null)
                     CheckUpdates = Convert.ToBoolean(st["checkUpdates"]);
+                if (st.ContainsKey("sendLogs") && st["sendLogs"] != null)
+                    SendLogs = Convert.ToBoolean(st["sendLogs"]);
                 if (st.ContainsKey("updateUrl") && st["updateUrl"] != null)
                     UpdateUrl = st["updateUrl"].ToString().Trim();
             }
@@ -205,6 +236,7 @@ namespace JDControl
                 Dictionary<string, object> st = new Dictionary<string, object>();
                 st["lang"] = Lang;
                 st["checkUpdates"] = CheckUpdates;
+                st["sendLogs"] = SendLogs;
                 if (UpdateUrl.Length > 0) st["updateUrl"] = UpdateUrl;
 
                 JavaScriptSerializer ser = new JavaScriptSerializer();

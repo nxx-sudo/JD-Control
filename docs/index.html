@@ -410,8 +410,16 @@
     // PWA: cachea la interfaz para abrirla sin conexión. Las llamadas al
     // backend y al túnel no se tocan (van a otro origen).
     if ('serviceWorker' in navigator) {
+      var hadController = !!navigator.serviceWorker.controller;
+      var refreshed = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        var pad = document.getElementById('scr-pad');
+        if (!hadController || refreshed || (pad && pad.classList.contains('active'))) return;
+        refreshed = true;
+        location.reload();
+      });
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js').catch(function () {});
+        navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(function () {});
       });
     }
   </script>

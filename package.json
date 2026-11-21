@@ -1,6 +1,6 @@
 {
   "name": "jd-sala-local",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Servidor de sala local + controlador movil para Just Dance Legacy (PC)",
   "main": "server.js",

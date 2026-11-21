@@ -12,6 +12,8 @@ const { WebSocketServer } = WebSocket;
 const selfsigned = require('selfsigned');
 const QRCode = require('qrcode');
 const { GamePhone } = require('./src/gamephone');
+const devices = require('./src/devices');
+const songGate = require('./src/songgate');
 
 const HTTPS_PORT = Number(process.env.JD_PORT || 8443);
 const HTTP_PORT = Number(process.env.JD_HTTP_PORT || 8081);
@@ -22,15 +24,32 @@ const LOG_DIR = path.join(__dirname, 'logs');
 const AVATAR_DIR = path.join(__dirname, 'cache', 'avatars');
 const GAME_HTTP = 'http://127.0.0.1:8080';
 
+/* Avatares de perfil: copia local para que se vean aunque el juego este cerrado */
 fs.rmSync(AVATAR_DIR, { recursive: true, force: true });
 fs.mkdirSync(AVATAR_DIR, { recursive: true });
 
+/* Registro de lo que el juego manda al movil (para depurar la UI) */
 fs.mkdirSync(LOG_DIR, { recursive: true });
 const UI_LOG = path.join(LOG_DIR, 'ui.jsonl');
 try {
   if (fs.statSync(UI_LOG).size > 4 * 1024 * 1024) fs.writeFileSync(UI_LOG, '');
-} catch {  }
+} catch { /* no existe todavia */ }
 
+/* Log detallado de los fantasmas (jugadores remotos dentro del juego). */
+const GHOST_LOG = path.join(LOG_DIR, 'ghost.log');
+try {
+  if (fs.statSync(GHOST_LOG).size > 2 * 1024 * 1024) fs.writeFileSync(GHOST_LOG, '');
+} catch { /* no existe todavia */ }
+
+/* Puntajes de fin de cancion (recap) para comparar los dos PCs. */
+const SCORE_LOG = path.join(LOG_DIR, 'score.log');
+try {
+  if (fs.statSync(SCORE_LOG).size > 1024 * 1024) fs.writeFileSync(SCORE_LOG, '');
+} catch { /* no existe todavia */ }
+
+/* ------------------------------------------------------------------ */
+/*  IPs locales                                                        */
+/* ------------------------------------------------------------------ */
 function localIPv4() {
   const out = [];
   const ifaces = os.networkInterfaces();
@@ -43,6 +62,7 @@ function localIPv4() {
   return out;
 }
 
+/** Prefiere ZeroTier / LAN domestica sobre adaptadores raros. */
 function pickPrimaryIP(ips) {
   const rank = (ip) =>
     ip.startsWith('192.168.') ? 0 :
@@ -53,6 +73,9 @@ function pickPrimaryIP(ips) {
   return sorted[0] ? sorted[0].address : '127.0.0.1';
 }
 
+/* ------------------------------------------------------------------ */
+/*  Certificado autofirmado (cacheado por IPs)                         */
+/* ------------------------------------------------------------------ */
 function ensureCert(ips) {
   const certFile = path.join(CERT_DIR, 'cert.pem');
   const keyFile = path.join(CERT_DIR, 'key.pem');
@@ -64,7 +87,7 @@ function ensureCert(ips) {
     if (meta.ips === wanted && fs.existsSync(certFile) && fs.existsSync(keyFile)) {
       return { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) };
     }
-  } catch {  }
+  } catch { /* regenerar */ }
 
   fs.mkdirSync(CERT_DIR, { recursive: true });
   const altNames = [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }];
@@ -87,24 +110,29 @@ const IPS = localIPv4();
 const PRIMARY_IP = pickPrimaryIP(IPS);
 const TLS = ensureCert(IPS);
 
+/* ------------------------------------------------------------------ */
+/*  Estado de la sala                                                  */
+/* ------------------------------------------------------------------ */
 const room = {
   code: null,
-  phones: new Map(),
+  phones: new Map(), // clientId -> { id, socket, game, name }
 };
 let nextPhoneId = 1;
 
+/* Sala online entre PCs: el anfitrion es el dueno de la sala; los demas
+   se conectan a su /ws/online con el mismo codigo de 5 digitos. */
 const online = {
-  role: null,
+  role: null,             // 'host' | 'member' | null
   code: null,
-  host: null,
+  host: null,             // ws://ip:8081 del anfitrion (solo miembro)
   hostName: null,
   hostSong: null,
   hostPhase: null,
-  hostPhone: false,
-  pendingJoin: null,
+  hostPhone: false,       // el anfitrion tiene su movil conectado (solo miembro)
+  pendingJoin: null,      // respuesta pendiente de /api/online/join
   creatorProfile: null,
   creatorAvatar: null,
-  requireIp: false,
+  requireIp: false,       // el anfitrion exige IP ademas del codigo
   targetSong: null,
   hint: null,
   error: null,
@@ -118,7 +146,7 @@ const online = {
   ws: null,
   reconnectTimer: null,
   memberSeq: 1,
-  members: new Map(),
+  members: new Map(),     // id -> { id, socket, name, song, phase, ... }
   lastSongSent: null,
   lastSending: false,
   lastMemberSig: '',
@@ -142,11 +170,18 @@ function normName(v) {
   return String(v || '').trim().toLowerCase();
 }
 
+/** Primer movil de este PC: es el que manda el estado a la sala online. */
 function localEntry() {
   for (const entry of room.phones.values()) return entry;
   return null;
 }
 
+/* ------------------------------------------------------------------ */
+/*  De que dispositivo viene cada jugador (PC / movil / los dos)        */
+/* ------------------------------------------------------------------ */
+
+/** IP de quien conecta. Detras de cloudflared todo llega desde 127.0.0.1 y la
+    IP real va en la cabecera; solo entonces se le hace caso a la cabecera. */
 function clientIp(req) {
   const raw = String((req && req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/, '');
   if (raw === '127.0.0.1' || raw === '::1') {
@@ -170,8 +205,17 @@ function subnet24(ip) {
   return p.length === 4 ? p.slice(0, 3).join('.') : null;
 }
 
+/**
+ * Anfitrion: a que PC de la sala pertenece cada movil extra (no el del propio
+ * anfitrion). Un movil cuenta como de un PC miembro si:
+ *   1. tiene la misma IP publica que ese PC (misma casa/NAT, tipico al entrar
+ *      por Render o por el tunel), o
+ *   2. es una IP privada de la misma /24 que ese PC y esa red no es la del
+ *      anfitrion (p. ej. una red ZeroTier/VPN propia del miembro).
+ * Si hay mas de un candidato no se adivina: el movil queda suelto.
+ */
 function phoneOwners() {
-  const owners = new Map();
+  const owners = new Map(); // phoneId -> memberId
   if (online.role !== 'host') return owners;
 
   const members = [...online.members.values()].filter((m) => m.connected && !isLoopback(m.ip));
@@ -193,12 +237,14 @@ function phoneOwners() {
   return owners;
 }
 
+/** El PC miembro tiene movil: el suyo propio o uno emparejado por IP. */
 function memberHasPhone(m, owners) {
   if (m.phone) return true;
   for (const owner of owners.values()) if (owner === m.id) return true;
   return false;
 }
 
+/** Resumen del jugador local que se publica a la sala. */
 function localSnapshot() {
   const entry = localEntry();
   if (!entry) {
@@ -217,6 +263,7 @@ function localSnapshot() {
   };
 }
 
+/** Estado que ven el panel del exe y el movil. */
 function onlineState() {
   const rows = [];
   const owners = phoneOwners();
@@ -286,6 +333,11 @@ function notifyPhonesOnline() {
   }
 }
 
+/**
+ * Admin de la sala: SOLO el perfil que creo la sala. Si su PC se cae, el mando
+ * queda reservado un rato (ADMIN_GRACE_MS) en vez de pasar al primero que
+ * llegue; asi un corte de red o un reinicio no regala el admin a otro PC.
+ */
 const ADMIN_GRACE_MS = 45000;
 
 function refreshAdmin() {
@@ -300,7 +352,7 @@ function refreshAdmin() {
   if (creator) {
     pick = list.find((m) => {
       if (normName(m.name) !== creator) return false;
-
+      // Si ambos PCs conocen el avatar del perfil, tambien tiene que coincidir.
       if (creatorAvatar && m.avatar) return m.avatar === creatorAvatar;
       return true;
     }) || null;
@@ -317,7 +369,7 @@ function refreshAdmin() {
   if (!pick && online.creatorMemberId) {
     const goneFor = now - (online.creatorSeenAt || 0);
     if (goneFor < ADMIN_GRACE_MS) {
-
+      // Reservado: nadie hereda el admin mientras dura la espera.
       adminId = online.creatorMemberId;
       waiting = true;
     } else {
@@ -326,7 +378,7 @@ function refreshAdmin() {
   }
 
   online.adminId = adminId;
-
+  // waiting: el admin reservado ya no esta en la sala, asi que nadie lo muestra.
   for (const m of online.members.values()) m.admin = m.id === online.adminId;
 
   clearTimeout(online.adminTimer);
@@ -370,9 +422,12 @@ function onlineRoomPayload() {
   };
 }
 
+/** Host -> todos los PCs conectados. */
 function broadcastOnlineRoom() {
   if (online.role !== 'host') return;
 
+  // El perfil del creador se conoce al conectar su movil; hay que aplicarlo
+  // antes de repartir el rol de admin.
   const snap = localSnapshot();
   if (snap.name) {
     online.hostName = snap.name;
@@ -381,13 +436,16 @@ function broadcastOnlineRoom() {
   }
 
   refreshAdmin();
+  // Si un PC miembro acaba de entrar/salir de una cancion, aqui se crean o
+  // quitan los fantasmas; no hace falta esperar a otro cambio local.
+  reconcileGhosts();
   const payload = onlineRoomPayload();
 
   for (const m of online.members.values()) {
     if (!m.link || !m.link.isOpen()) continue;
     try {
       m.link.send({ ...payload, admin: m.id === online.adminId });
-    } catch {  }
+    } catch { /* el socket se cae solo */ }
   }
 
   broadcastHost();
@@ -410,7 +468,7 @@ function broadcastSync(action, extra) {
 
   for (const m of online.members.values()) {
     if (m.link && m.link.isOpen()) {
-      try { m.link.send(msg); } catch {  }
+      try { m.link.send(msg); } catch { /* noop */ }
     }
   }
 }
@@ -535,6 +593,7 @@ function markReady(entry) {
   }
 }
 
+/** Cada cambio del juego local se refleja en la sala (cancion, baile, pausa). */
 function syncLocalToOnline() {
   if (!online.role) return;
 
@@ -603,78 +662,323 @@ function sendMemberUpdate(snap) {
       phone: snap.phone,
       readySong: online.localReadySong,
     }));
-  } catch {  }
+  } catch { /* reconecta */ }
 }
 
-const ghosts = new Map();
-const remoteCoach = new Map();
-const ACCEL_BATCH_MS = 80;
+/* ------------------------------------------------------------------ */
+/*  Jugadores remotos DENTRO del juego (moviles fantasma)               */
+/* ------------------------------------------------------------------ */
+/* El juego no tiene online: para que los demas aparezcan en "Elige a tu
+   bailarin" y bailen en la misma partida, este PC abre en su Legacy.exe un
+   movil virtual por cada jugador remoto. Ese fantasma copia el coach que el
+   otro elige en su movil y recibe sus movimientos (acelerometro) por la sala,
+   asi su puntuacion tambien cuenta aqui. */
+
+const ghosts = new Map();      // id del jugador remoto -> { game, coach, applied }
+const remoteCoach = new Map(); // ultimo coach elegido por cada jugador remoto
+const scoreReports = new Map(); // "jugador|cancion" -> Map(pc -> reporte)
+const scoreCompared = new Map(); // ultima comparacion registrada
+const ACCEL_BATCH_MS = 20;
 let accelOut = [];
 let accelTimer = null;
+let ghostPlan = '';            // ultima decision registrada (evita repetir lineas)
+const playMiss = new Map();    // id remoto -> ultima vez que llego "play" sin fantasma
 
-function remotePlayers() {
-  const out = [];
-  if (online.role === 'host') {
-
-    for (const m of online.members.values()) if (m.connected && m.phone) out.push(m.id);
-  } else if (online.role === 'member' && online.connected) {
-    if (online.hostPhone) out.push('host');
-    for (const m of online.members.values()) {
-      if (m.id !== online.memberId && m.connected && m.phone) out.push(m.id);
-    }
+/** Linea [GHOST] en consola (logs/server.log) y en logs/ghost.log. */
+function ghostLog(event, data) {
+  let line = new Date().toISOString() + ' [GHOST] ' + event;
+  if (data !== undefined) {
+    try { line += ' ' + JSON.stringify(data); } catch { line += ' [sin serializar]'; }
   }
-  return out;
+  try { console.log(line); } catch { /* consola cerrada */ }
+  try {
+    const st = fs.statSync(GHOST_LOG);
+    if (st.size > 2 * 1024 * 1024) fs.writeFileSync(GHOST_LOG, '');
+  } catch { /* no existe todavia */ }
+  try { fs.appendFile(GHOST_LOG, line + '\n', () => {}); } catch { /* disco lleno */ }
 }
 
+/** Puntaje que el juego entrega al movil al terminar la cancion. */
+function recapOf(msg) {
+  const setup = msg && msg.setupData && msg.setupData.recapSetup;
+  const data = setup && setup.recapData;
+  if (!data) return null;
+  const score = Number(data.songScore);
+  if (!Number.isFinite(score)) return null;
+  return {
+    score,
+    stars: Number(data.stars) || 0,
+    recapType: setup.recapType || null,
+  };
+}
+
+/** Linea [SCORE] en consola y en logs/score.log. */
+function scoreLog(event, data) {
+  let line = new Date().toISOString() + ' [SCORE] ' + event;
+  if (data !== undefined) {
+    try { line += ' ' + JSON.stringify(data); } catch { line += ' [sin serializar]'; }
+  }
+  try { console.log(line); } catch { /* consola cerrada */ }
+  try {
+    if (fs.statSync(SCORE_LOG).size > 1024 * 1024) fs.writeFileSync(SCORE_LOG, '');
+  } catch { /* no existe todavia */ }
+  try { fs.appendFile(SCORE_LOG, line + '\n', () => {}); } catch { /* disco lleno */ }
+}
+
+/** Clave del jugador local dentro de la sala. */
+function localPlayerKey() {
+  if (online.role === 'host') return 'host';
+  if (online.role === 'member' && online.memberId) return online.memberId;
+  return 'local';
+}
+
+/** Identificador del PC que calcula el puntaje. */
+function selfPc() {
+  return localPlayerKey();
+}
+
+/** Guarda un recap y, si este PC es miembro, lo manda al anfitrion. */
+function reportScore(rec) {
+  if (!rec || !rec.player || !rec.song || !Number.isFinite(Number(rec.score))) return;
+  const report = {
+    player: String(rec.player).slice(0, 40),
+    name: rec.name ? String(rec.name).slice(0, 60) : null,
+    song: String(rec.song).slice(0, 120),
+    score: Number(rec.score),
+    stars: Number(rec.stars) || 0,
+    kind: rec.kind === 'ghost' ? 'ghost' : 'local',
+  };
+  recordScore({ ...report, pc: selfPc() });
+  if (online.role === 'member' && online.connected) sendPlay({ score: report });
+}
+
+/** El anfitrion compara el mismo jugador calculado en dos PCs. */
+function recordScore(r) {
+  if (!r || !r.player || !r.song || !Number.isFinite(Number(r.score))) return;
+  const key = r.player + '|' + normName(r.song);
+  let by = scoreReports.get(key);
+  if (!by) { by = new Map(); scoreReports.set(key, by); }
+  by.set(r.pc, r);
+
+  if (online.role !== 'host' || by.size < 2) return;
+  const list = [...by.values()];
+  const a = list[0];
+  const b = list[1];
+  const sig = `${a.pc}:${a.score}|${b.pc}:${b.score}`;
+  if (scoreCompared.get(key) === sig) return;
+  scoreCompared.set(key, sig);
+
+  scoreLog('compare', {
+    player: r.player, song: r.song,
+    a: { pc: a.pc, kind: a.kind, name: a.name, score: a.score, stars: a.stars },
+    b: { pc: b.pc, kind: b.kind, name: b.name, score: b.score, stars: b.stars },
+    diff: a.score - b.score,
+  });
+}
+
+/** Cancion abierta en este PC (null si esta en menus). */
+function localSong() {
+  return localSnapshot().song || null;
+}
+
+/** Resumen de la sala para el log (sin IPs). */
+function ghostMembers() {
+  return [...online.members.values()].map((m) => ({
+    id: m.id, name: m.name, song: m.song, phase: m.phase,
+    phone: !!m.phone, connected: !!m.connected,
+  }));
+}
+
+/** Jugadores de otros PCs que tienen movil y estan en la misma cancion.
+    En menus (o con otra cancion) no se inyecta a nadie: cada cual juega
+    su propia partida hasta que coinciden. */
+function remotePlayers() {
+  return songGate.wantedPlayers({
+    role: online.role,
+    connected: online.connected,
+    song: localSong(),
+    selfId: online.memberId,
+    members: [...online.members.values()],
+    host: { song: online.hostSong, phase: online.hostPhase, phone: online.hostPhone },
+  });
+}
+
+/** Crea o quita fantasmas segun quien hay en la sala. Solo cuando este PC y el
+    otro estan en la misma cancion: antes de eso nadie se une solo. */
 function reconcileGhosts() {
   const local = localEntry();
-  const ready = !!(online.role && local && local.ready && local.game.connected);
+  const song = localSong();
+  const localUp = !!(local && local.game.connected);
+  const ready = !!(online.role && localUp && song);
   const want = new Set(ready ? remotePlayers() : []);
+
+  let why;
+  if (!online.role) why = 'sin sala online';
+  else if (!local) why = 'este PC aun no tiene movil conectado';
+  else if (!localUp) why = 'movil local sin conexion al juego';
+  else if (!song) why = 'este PC esta en menus';
+  else if (!want.size) why = 'ningun PC de la sala esta en esta cancion';
+  else why = 'hay jugadores en la misma cancion';
+
+  const plan = JSON.stringify({
+    role: online.role, localUp, song, want: [...want],
+    ghosts: [...ghosts.keys()], members: ghostMembers(),
+    host: { song: online.hostSong, phase: online.hostPhase, phone: !!online.hostPhone },
+  });
+  if (plan !== ghostPlan) {
+    ghostPlan = plan;
+    ghostLog('reconcile', {
+      why, role: online.role, song, want: [...want], ghosts: [...ghosts.keys()],
+      members: ghostMembers(),
+      host: { song: online.hostSong, phase: online.hostPhase, phone: !!online.hostPhone },
+    });
+  }
 
   for (const [id, gh] of ghosts) {
     if (want.has(id)) continue;
+    ghostLog('remove', {
+      id, song, reason: ready ? 'ya no coincide la cancion o se desconecto' : why,
+      wasConnected: gh.game.state().connected,
+    });
     gh.game.stop();
     ghosts.delete(id);
   }
 
   for (const id of want) {
     if (ghosts.has(id)) continue;
-    const gh = { id, game: new GamePhone('online-' + id), coach: remoteCoach.has(id) ? remoteCoach.get(id) : null, applied: null };
-    gh.game.on('state', () => applyGhostCoach(gh));
+    const gh = {
+      id,
+      game: new GamePhone('online-' + id),
+      coach: remoteCoach.has(id) ? remoteCoach.get(id) : null,
+      applied: null,
+      coachFailed: false,
+      lastAccelLog: 0,
+      last: {},
+    };
+    ghostLog('create', {
+      id, song, coach: gh.coach,
+      remote: ghostMembers().find((m) => m.id === id) || (id === 'host' ? 'host' : null),
+    });
+    gh.game.on('state', () => onGhostState(gh));
+    gh.game.on('game', (msg) => onGhostGame(gh, msg));
     ghosts.set(id, gh);
     gh.game.start();
+
+    // El juego solo abre la puerta de telefonos en ciertas pantallas: a los
+    // 3 s se deja escrito si acepto al movil virtual o lo rechazo.
+    const t = setTimeout(() => {
+      const st = gh.game.state();
+      ghostLog('connect-check', {
+        id, connected: st.connected, lobby: st.lobby, inputAllowed: st.inputAllowed,
+        error: st.error, song: st.song, localSong: localSong(),
+      });
+    }, 3000);
+    if (t.unref) t.unref();
   }
 }
 
-function applyGhostCoach(gh) {
-  const g = gh.game;
-  if (!g.lobby) { gh.applied = null; return; }
-  if (gh.coach === null || gh.applied === gh.coach || !g.inputAllowed) return;
-  if (g.command('coach', { index: gh.coach })) gh.applied = gh.coach;
+/** Cambios del movil virtual (conexion, lobby, cancion, permiso de entrada). */
+function onGhostState(gh) {
+  const st = gh.game.state();
+  const diff = {};
+  for (const k of ['connected', 'lobby', 'sending', 'inputAllowed', 'song', 'name', 'error']) {
+    if (gh.last[k] !== st[k]) diff[k] = st[k];
+  }
+  if (!Object.keys(diff).length) return;
+
+  gh.last = {
+    connected: st.connected, lobby: st.lobby, sending: st.sending,
+    inputAllowed: st.inputAllowed, song: st.song, name: st.name, error: st.error,
+  };
+  ghostLog('state', { id: gh.id, ...diff, localSong: localSong() });
+  applyGhostCoach(gh);
 }
 
-function applyPlay(from, data) {
+/** Recap del fantasma: puntaje que ESTE juego le calculo al jugador remoto. */
+function onGhostGame(gh, msg) {
+  const recap = recapOf(msg);
+  if (!recap) return;
+  const st = gh.game.state();
+  const key = [st.name, st.song, recap.score, recap.stars, recap.recapType].join('|');
+  if (gh.lastRecap === key) return;
+  gh.lastRecap = key;
 
+  const member = online.members.get(gh.id);
+  scoreLog('ghost', {
+    player: gh.id,
+    name: st.name || (member && member.name) || null,
+    song: st.song || localSong(),
+    ...recap,
+  });
+  reportScore({
+    player: gh.id,
+    name: st.name || (member && member.name) || null,
+    song: st.song || localSong(),
+    score: recap.score, stars: recap.stars, kind: 'ghost',
+  });
+}
+
+/** El coach se aplica cada vez que el fantasma entra en la seleccion de bailarin. */
+function applyGhostCoach(gh) {
+  const g = gh.game;
+  if (!g.lobby) { gh.applied = null; gh.coachFailed = false; return; }
+  if (gh.coach === null || gh.applied === gh.coach || !g.inputAllowed) return;
+  if (g.command('coach', { index: gh.coach })) {
+    gh.applied = gh.coach;
+    ghostLog('coach', { id: gh.id, coach: gh.coach });
+  } else if (!gh.coachFailed) {
+    gh.coachFailed = true;
+    ghostLog('coach-fail', { id: gh.id, coach: gh.coach, inputAllowed: g.inputAllowed });
+  }
+}
+
+/** Lo que hace el jugador de otro PC, aplicado a su fantasma en este juego. */
+function applyPlay(from, data) {
+  // Entro a la seleccion de bailarin de una cancion nueva: vuelve el coach por defecto.
   if (data.lobby) remoteCoach.delete(from);
   if (Number.isInteger(data.coach)) remoteCoach.set(from, data.coach);
+  // Recap calculado en otro PC: el anfitrion lo guarda para comparar.
+  if (data.score) recordScore({ ...data.score, pc: from });
   const gh = ghosts.get(from);
-  if (!gh) return;
+
+  if (!gh) {
+    // El otro PC manda datos pero aqui no hay fantasma (otra cancion/menus).
+    const now = Date.now();
+    if (now - (playMiss.get(from) || 0) > 10000) {
+      playMiss.set(from, now);
+      ghostLog('play-sin-fantasma', {
+        id: from, coach: data.coach, lobby: !!data.lobby,
+        accel: Array.isArray(data.accel) ? data.accel.length : 0,
+        localSong: localSong(), ghosts: [...ghosts.keys()],
+      });
+    }
+    return;
+  }
 
   if (data.lobby) {
     gh.coach = null;
     gh.applied = null;
+    gh.coachFailed = false;
+    ghostLog('play-lobby', { id: from });
   }
 
   if (Number.isInteger(data.coach)) {
     gh.coach = data.coach;
     gh.applied = null;
+    ghostLog('play-coach', { id: from, coach: data.coach });
     applyGhostCoach(gh);
   }
   if (Array.isArray(data.accel)) {
     for (const v of data.accel) gh.game.pushAccel(v[0], v[1], v[2]);
+    const now = Date.now();
+    if (now - (gh.lastAccelLog || 0) > 5000) {
+      gh.lastAccelLog = now;
+      ghostLog('play-accel', { id: from, samples: data.accel.length });
+    }
   }
 }
 
+/** coachId de un comando literal del juego (JD_ChangeCoach_PhoneCommandData). */
 function coachFromAction(command) {
   try {
     const o = typeof command === 'string' ? JSON.parse(command) : command;
@@ -682,7 +986,7 @@ function coachFromAction(command) {
       const c = Number(o.root.coachId) || 0;
       return Number.isInteger(c) && c >= 0 && c < 8 ? c : null;
     }
-  } catch {  }
+  } catch { /* no es JSON */ }
   return null;
 }
 
@@ -693,6 +997,7 @@ function isStartAction(command) {
   } catch { return false; }
 }
 
+/** Solo datos con forma valida: coach entero pequeño y muestras numericas. */
 function cleanPlay(msg) {
   const out = {};
   const c = Number(msg && msg.coach);
@@ -702,27 +1007,45 @@ function cleanPlay(msg) {
     out.accel = msg.accel.slice(0, 400).filter((v) =>
       Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n)));
   }
+  if (msg && msg.score && typeof msg.score === 'object') {
+    const s = msg.score;
+    const score = Number(s.score);
+    if (Number.isFinite(score) && s.player && s.song) {
+      out.score = {
+        player: String(s.player).slice(0, 40),
+        name: s.name ? String(s.name).slice(0, 60) : null,
+        song: String(s.song).slice(0, 120),
+        score,
+        stars: Number(s.stars) || 0,
+        kind: s.kind === 'ghost' ? 'ghost' : 'local',
+      };
+    }
+  }
   return out;
 }
 
+/** Anfitrion: reparte la jugada a los demas PCs y la aplica a su fantasma. */
 function relayPlay(from, data) {
   const msg = { type: 'play', from, ...data };
   for (const m of online.members.values()) {
     if (m.id === from || !m.link || !m.link.isOpen()) continue;
-    try { m.link.send(msg); } catch {  }
+    try { m.link.send(msg); } catch { /* noop */ }
   }
   if (from !== 'host') applyPlay(from, data);
 }
 
+/** Jugada del jugador de ESTE PC hacia la sala. */
 function sendPlay(data) {
   if (online.role === 'host') relayPlay('host', data);
   else if (online.role === 'member' && online.ws && online.ws.readyState === 1) {
-    try { online.ws.send(JSON.stringify({ type: 'play', ...data })); } catch {  }
+    try { online.ws.send(JSON.stringify({ type: 'play', ...data })); } catch { /* reconecta */ }
   }
 }
 
+/** Acelerometro del movil propio: se agrupa para no mandar 100 mensajes/s. */
 function relayAccel(v) {
-  accelOut.push([+(+v[0]).toFixed(2), +(+v[1]).toFixed(2), +(+v[2]).toFixed(2)]);
+  // Sin redondear: el fantasma debe recibir la misma muestra que el juego local.
+  accelOut.push([+v[0], +v[1], +v[2]]);
   if (accelOut.length > 300) accelOut.splice(0, accelOut.length - 300);
   if (accelTimer) return;
   accelTimer = setTimeout(() => {
@@ -744,12 +1067,14 @@ function normalizeHost(input) {
     if (u.protocol === 'http:') u.protocol = 'ws:';
     if (u.protocol === 'https:') u.protocol = 'wss:';
     if (u.protocol !== 'ws:' && u.protocol !== 'wss:') return null;
-
+    // El puerto 8443 del panel es HTTPS; un ws:// ahi no funcionaria.
     if (u.protocol === 'ws:' && (u.port === '8443' || u.port === '443')) u.protocol = 'wss:';
     if (!u.hostname) return null;
 
+    // IP local: puertos del panel. Dominio publico (tunel): el estandar (443/80),
+    // porque cloudflared ya termina el TLS y el puerto no se escribe.
     const esIp = /^\d+\.\d+\.\d+\.\d+$/.test(u.hostname) || u.hostname === 'localhost';
-
+    // "algo.onrender.com" sin https:// → los dominios publicos solo van por TLS.
     if (!hadScheme && !esIp && !u.port) u.protocol = 'wss:';
     if (!u.port && esIp) u.port = u.protocol === 'wss:' ? '8443' : '8081';
 
@@ -764,7 +1089,7 @@ function leaveOnline(keepError) {
   online.reconnectTimer = null;
 
   if (online.ws) {
-    try { online.ws.close(); } catch {  }
+    try { online.ws.close(); } catch { /* noop */ }
     online.ws = null;
   }
 
@@ -821,7 +1146,7 @@ function stopOnlineHost() {
         m.link.send({ type: 'closed' });
         m.link.close();
       }
-    } catch {  }
+    } catch { /* noop */ }
   }
 
   online.role = null;
@@ -871,6 +1196,7 @@ function startOnlineHost() {
   broadcastOnlineRoom();
 }
 
+/** Responde (una sola vez) a la peticion /api/online/join que espera. */
 function finishJoin(err) {
   const pending = online.pendingJoin;
   if (!pending) return;
@@ -879,6 +1205,7 @@ function finishJoin(err) {
   pending.cb(err || null);
 }
 
+/** Traduce el fallo del WebSocket a algo que se entienda en el panel. */
 function joinErrorText(err, host, done) {
   const msg = String((err && err.message) || '');
   const code = String((err && err.code) || '');
@@ -887,7 +1214,8 @@ function joinErrorText(err, host, done) {
   if (status === '403') return done('Código incorrecto, o ese PC no tiene la sala online abierta.');
   if (status === '401') return done('El servidor pidió autorización (¿URL equivocada?).');
   if (status === '404') {
-
+    // 404 en un dominio: o el backend no tiene la sala, o es un backend viejo
+    // sin /ws/online. Se pregunta a /api/room para saber cual de las dos.
     const httpBase = host.replace(/^ws/, 'http');
     const req = (httpBase.startsWith('https') ? https : http).get(
       httpBase + '/api/room?code=' + encodeURIComponent(online.code || ''),
@@ -897,7 +1225,7 @@ function joinErrorText(err, host, done) {
         res.on('data', (c) => { body += c; });
         res.on('end', () => {
           let j = null;
-          try { j = JSON.parse(body); } catch {  }
+          try { j = JSON.parse(body); } catch { /* no es el backend */ }
           if (j && j.ok) {
             return done('El backend tiene la sala pero no acepta PCs (es una versión antigua). ' +
               'Vuelve a desplegar la carpeta remote/ en Render, o usa la IP o el túnel del anfitrión.');
@@ -926,10 +1254,11 @@ function connectOnline() {
   clearTimeout(online.reconnectTimer);
 
   if (online.ws) {
-    try { online.ws.close(); } catch {  }
+    try { online.ws.close(); } catch { /* noop */ }
     online.ws = null;
   }
 
+  // Un dominio (Render) puede estar dormido y tardar en despertar.
   const isIp = /\/\/(\d+\.\d+\.\d+\.\d+|localhost)(:|$)/.test(online.host);
   let ws;
   try {
@@ -966,14 +1295,14 @@ function connectOnline() {
         phone: snap.phone,
       }));
       ws.send(JSON.stringify({ type: 'clock', t0: Date.now() }));
-    } catch {  }
+    } catch { /* noop */ }
 
     broadcastHost();
     notifyPhonesOnline();
   });
 
   ws.on('message', (raw) => {
-    if (online.ws !== ws) return;
+    if (online.ws !== ws) return; // socket viejo de otra sala
     handleOnlineMessage(raw);
   });
 
@@ -981,7 +1310,7 @@ function connectOnline() {
     if (online.ws !== ws) return;
     const host = online.host;
     joinErrorText(err, host, (text) => {
-      if (online.host !== host) return;
+      if (online.host !== host) return; // ya se cambio de sala
       online.error = text;
       finishJoin(text);
       broadcastHost();
@@ -990,7 +1319,7 @@ function connectOnline() {
   });
 
   ws.on('close', () => {
-
+    // Si ya hay otro socket (reconexion o cambio de sala), este cierre no cuenta.
     if (online.ws !== ws) return;
 
     online.ws = null;
@@ -1001,14 +1330,19 @@ function connectOnline() {
     broadcastHost();
     notifyPhonesOnline();
 
+    // Si el primer intento fallo, el panel ya tiene el error; no se insiste.
     if (online.role === 'member' && !online.pendingJoin && online.memberId) {
       online.reconnectTimer = setTimeout(connectOnline, 4000);
     }
   });
 }
 
+/* ---------------------------------------------------------------- */
+/*  Descubrimiento por UDP: unirse solo con el codigo (sin IP)       */
+/* ---------------------------------------------------------------- */
 let discoverySocket = null;
 
+/** Broadcast dirigido de cada interfaz IPv4 (ademas de 255.255.255.255). */
 function broadcastAddresses() {
   const out = new Set(['255.255.255.255']);
 
@@ -1024,11 +1358,12 @@ function broadcastAddresses() {
         out.add(ip.map((n, k) => ((n & mask[k]) | (~mask[k] & 255))).join('.'));
       }
     }
-  } catch {  }
+  } catch { /* sin interfaces, queda el broadcast global */ }
 
   return [...out];
 }
 
+/** El anfitrion escucha en UDP para responder a quien solo tiene el codigo. */
 function startDiscovery() {
   if (discoverySocket) return;
 
@@ -1051,19 +1386,19 @@ function startDiscovery() {
       httpsPort: HTTPS_PORT,
     }));
 
-    try { sock.send(reply, rinfo.port, rinfo.address); } catch {  }
+    try { sock.send(reply, rinfo.port, rinfo.address); } catch { /* noop */ }
   });
 
   sock.on('error', () => {
     if (discoverySocket === sock) discoverySocket = null;
-    try { sock.close(); } catch {  }
+    try { sock.close(); } catch { /* noop */ }
   });
 
   try {
     sock.bind(DISCOVERY_PORT, '0.0.0.0');
   } catch {
     discoverySocket = null;
-    try { sock.close(); } catch {  }
+    try { sock.close(); } catch { /* noop */ }
   }
 }
 
@@ -1071,9 +1406,10 @@ function stopDiscovery() {
   const sock = discoverySocket;
   discoverySocket = null;
   if (!sock) return;
-  try { sock.close(); } catch {  }
+  try { sock.close(); } catch { /* noop */ }
 }
 
+/** Busca una sala por codigo en la red local. Devuelve null si no aparece. */
 function discoverRoom(code, done) {
   let finished = false;
   const sock = dgram.createSocket('udp4');
@@ -1082,7 +1418,7 @@ function discoverRoom(code, done) {
     if (finished) return;
     finished = true;
     clearTimeout(timer);
-    try { sock.close(); } catch {  }
+    try { sock.close(); } catch { /* noop */ }
     done(result);
   };
 
@@ -1106,10 +1442,10 @@ function discoverRoom(code, done) {
 
   try {
     sock.bind(() => {
-      try { sock.setBroadcast(true); } catch {  }
+      try { sock.setBroadcast(true); } catch { /* noop */ }
       const payload = Buffer.from(JSON.stringify({ jd: 'discover', code: String(code) }));
       for (const addr of broadcastAddresses()) {
-        try { sock.send(payload, DISCOVERY_PORT, addr); } catch {  }
+        try { sock.send(payload, DISCOVERY_PORT, addr); } catch { /* noop */ }
       }
     });
   } catch {
@@ -1117,6 +1453,11 @@ function discoverRoom(code, done) {
   }
 }
 
+/**
+ * Une este PC a la sala remota.
+ * - Con IP: conexion directa (segunda opcion).
+ * - Sin IP: descubrimiento UDP por codigo; si la sala exige IP, error claro.
+ */
 function joinOnline(hostInput, code, profileName, done) {
   const cb = typeof done === 'function' ? done : () => {};
 
@@ -1153,14 +1494,15 @@ function joinOnline(hostInput, code, profileName, done) {
 
 const JOIN_WAIT_MS = 40000;
 
+/** Conecta como miembro y responde cuando el anfitrion acepta o falla. */
 function applyJoin(base, code, profileName, cb) {
   if (online.role === 'host') stopOnlineHost();
   else leaveOnline();
-  if (!room.code) room.code = randomCode();
+  if (!room.code) room.code = randomCode(); // sala local para el movil de este PC
 
   online.pendingJoin = {
     cb: (err) => {
-
+      // Si no entro, este PC vuelve a quedar fuera de la sala (con el error visible).
       if (err) leaveOnline(true);
       cb(err);
     },
@@ -1179,7 +1521,7 @@ function applyJoin(base, code, profileName, cb) {
   online.hint = null;
 
   if (profileName) {
-
+    // Se usa como nombre provisional hasta que el juego entregue el perfil.
     online.hostName = null;
   }
 
@@ -1192,6 +1534,7 @@ function handleOnlineMessage(raw) {
   let msg;
   try { msg = JSON.parse(raw.toString()); } catch { return; }
 
+  // Jugada de otro PC (coach / movimientos): va a su fantasma, sin repintar nada.
   if (msg.type === 'play') {
     if (msg.from && msg.from !== online.memberId) applyPlay(String(msg.from), cleanPlay(msg));
     return;
@@ -1228,6 +1571,7 @@ function handleOnlineMessage(raw) {
     online.admin = !!msg.admin;
     online.requireIp = !!msg.requireIp;
 
+    // Aunque el miembro ya estuviera dentro de la cancion, la sala lo reconoce.
     const snap = localSnapshot();
     const same = !!(online.targetSong && snap.song &&
       normName(snap.song) === normName(online.targetSong));
@@ -1325,11 +1669,21 @@ function handleMemberSync(msg) {
   notifyPhonesOnline();
 }
 
+/** ¿La peticion llega por HTTPS? (directo o a traves de un tunel/proxy) */
 function isSecure(req) {
   if (req.socket && req.socket.encrypted) return true;
   const proto = String((req.headers && req.headers['x-forwarded-proto']) || '').toLowerCase();
   return proto.split(',')[0].trim() === 'https';
 }
+
+/* ------------------------------------------------------------------ */
+/*  Tunel publico (cloudflared)                                        */
+/* ------------------------------------------------------------------ */
+/* Se lanza al abrir la sala y apunta al puerto HTTP local (8081).
+   cloudflared tarda unos segundos en registrarse con Cloudflare y devolver
+   su URL; hasta entonces el panel muestra "conectando". Al cerrar la sala
+   se apaga. cache/tunnel.json solo sirve para tuneles abiertos a mano con
+   tunnel.bat (compatibilidad). */
 
 const TUNNEL_STATE = path.join(__dirname, 'cache', 'tunnel.json');
 const CLOUDFLARED = path.join(__dirname, 'cloudflared.exe');
@@ -1339,14 +1693,14 @@ let tunnelProc = null;
 const tunnel = { url: '', state: 'idle', error: null };
 
 function clearTunnelFile() {
-  try { fs.unlinkSync(TUNNEL_STATE); } catch {  }
+  try { fs.unlinkSync(TUNNEL_STATE); } catch { /* noop */ }
 }
 
 function setTunnel(state, error) {
   tunnel.state = state;
   tunnel.error = error || null;
   if (state !== 'ready') tunnel.url = '';
-  try { broadcastHost(); } catch {  }
+  try { broadcastHost(); } catch { /* arranque */ }
 }
 
 function startTunnel() {
@@ -1378,7 +1732,7 @@ function startTunnel() {
   let buf = '';
   const onData = (chunk) => {
     if (tunnel.url) return;
-
+    // La URL puede venir troceada entre dos lecturas: se guarda la cola.
     buf = (buf + chunk.toString()).slice(-4096);
     const m = buf.match(TUNNEL_URL_RE);
     if (!m) return;
@@ -1390,10 +1744,11 @@ function startTunnel() {
     try {
       fs.mkdirSync(path.dirname(TUNNEL_STATE), { recursive: true });
       fs.writeFileSync(TUNNEL_STATE, JSON.stringify({ url: m[0], pid: proc.pid, at: Date.now() }, null, 2));
-    } catch {  }
+    } catch { /* noop */ }
 
     console.log('  Tunel listo: ' + m[0] + '/m');
     broadcastHost();
+    publishRoom();
   };
 
   proc.stdout.on('data', onData);
@@ -1412,6 +1767,7 @@ function startTunnel() {
     setTunnel('idle', null);
   });
 
+  // Aviso si Cloudflare no contesta (red bloqueada, firewall, antivirus...).
   setTimeout(() => {
     if (tunnelProc === proc && !tunnel.url && !tunnel.error) {
       tunnel.error = 'Cloudflare no respondió (revisa la red o el firewall).';
@@ -1427,7 +1783,7 @@ function stopTunnel() {
   setTunnel('idle', null);
 
   if (!proc) return;
-  try { proc.kill(); } catch {  }
+  try { proc.kill(); } catch { /* noop */ }
 }
 
 function pidAlive(pid) {
@@ -1446,6 +1802,7 @@ function tunnelState() {
     return { url: tunnel.url, active: !!tunnel.url, state: tunnel.state, error: tunnel.error };
   }
 
+  // Tunel abierto a mano con tunnel.bat: se respeta mientras siga vivo.
   try {
     const raw = JSON.parse(fs.readFileSync(TUNNEL_STATE, 'utf8'));
     const url = String(raw.url || '').trim().replace(/\/+$/, '');
@@ -1454,18 +1811,114 @@ function tunnelState() {
       return { url, active: true, state: 'ready', error: null };
     }
     clearTunnelFile();
-  } catch {  }
+  } catch { /* no hay tunel previo */ }
 
   return { url: '', active: false, state: 'idle', error: null };
 }
 
+/* Si quedo un cloudflared de una ejecucion anterior (cierre forzado), se
+   apaga para no dejar tuneles publicos vivos apuntando a este PC. */
 try {
   const prev = JSON.parse(fs.readFileSync(TUNNEL_STATE, 'utf8'));
   if (prev && prev.pid && pidAlive(prev.pid)) {
-    try { process.kill(Number(prev.pid)); } catch {  }
+    try { process.kill(Number(prev.pid)); } catch { /* noop */ }
   }
-} catch {  }
+} catch { /* no habia tunel previo */ }
 clearTunnelFile();
+
+/* ------------------------------------------------------------------ */
+/*  Emparejamiento PWA (codigo -> tunel actual)                        */
+/* ------------------------------------------------------------------ */
+/* La PWA es estatica (GitHub Pages) y no puede conocer la URL del
+   tunel, que cambia en cada sesion. Mientras hay sala, el panel publica
+   {code, tunnel} en el backend de emparejamiento y la PWA lo consulta. */
+const REMOTE_FILE = path.join(__dirname, 'remote.json');
+const PUBLISH_EVERY = 45 * 1000;
+
+function remoteBase() {
+  if (String(process.env.JD_REMOTE || '').toLowerCase() === 'off') return '';
+  if (process.env.JD_REMOTE_URL) return String(process.env.JD_REMOTE_URL).replace(/\/+$/, '');
+  try {
+    const j = JSON.parse(fs.readFileSync(REMOTE_FILE, 'utf8'));
+    return String(j.url || '').trim().replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+let publishAt = 0;
+let publishKey = '';
+let publishWarned = false;
+let publishTimer = null;
+let publishFail = 0;
+
+function schedulePublish(ms) {
+  if (publishTimer) return;
+  publishTimer = setTimeout(() => {
+    publishTimer = null;
+    publishRoom();
+  }, ms);
+  if (publishTimer.unref) publishTimer.unref();
+}
+
+async function publishRoom() {
+  const base = remoteBase();
+  if (!base) return;
+  const ts = tunnelState();
+  if (!room.code || !ts.active || !ts.url) return;
+
+  const key = room.code + '|' + ts.url;
+  if (key === publishKey && Date.now() - publishAt < PUBLISH_EVERY - 5000) return;
+  publishAt = Date.now();
+
+  try {
+    const res = await fetch(base + '/api/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: room.code,
+        tunnel: ts.url,
+        ips: IPS.map((i) => i.address),
+        httpsPort: HTTPS_PORT,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (publishKey !== key) {
+      publishKey = key;
+      console.log(`  PWA: sala ${room.code} publicada en ${base}`);
+    }
+    publishWarned = false;
+    publishFail = 0;
+    if (publishTimer) { clearTimeout(publishTimer); publishTimer = null; }
+  } catch (err) {
+    // Cloudflare tarda en propagar el nombre nuevo y Render puede estar
+    // despertando: se reintenta pronto en vez de esperar al latido de 45 s.
+    publishFail = Math.min(publishFail + 1, 6);
+    if (!publishWarned) {
+      publishWarned = true;
+      console.log('  PWA: no se pudo publicar la sala (' +
+        (err && err.message ? err.message : err) + ')');
+    }
+    schedulePublish(Math.min(30000, 4000 * publishFail));
+  }
+}
+
+function unpublishRoom(code) {
+  const base = remoteBase();
+  if (!base || !code) return;
+  publishKey = '';
+  publishFail = 0;
+  if (publishTimer) { clearTimeout(publishTimer); publishTimer = null; }
+  fetch(base + '/api/unpublish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+    signal: AbortSignal.timeout(8000),
+  }).catch(() => {});
+}
+
+setInterval(publishRoom, PUBLISH_EVERY).unref();
 
 function roomState() {
   const suffix = room.code ? '?code=' + room.code : '';
@@ -1479,16 +1932,21 @@ function roomState() {
     url: `https://${PRIMARY_IP}:${HTTPS_PORT}/m${suffix}`,
     urls: IPS.map((i) => ({ ip: i.address, name: i.name, url: `https://${i.address}:${HTTPS_PORT}/m${suffix}` })),
     phones: [...room.phones.values()].map((p) => phoneState(p, owners)),
+    devices: devices.summary(),
     online: onlineState(),
     tunnel: tunnelState(),
   };
 }
 
+/** Estado de un movil + la URL local de su avatar de perfil. */
 function phoneState(entry, owners) {
   const st = entry.game ? entry.game.state() : { id: entry.id };
   if (!st.lobby && !st.sending) st.song = null;
   st.avatarUrl = entry.avatarFile ? `/api/avatar/${entry.id}?v=${entry.avatarVersion}` : null;
 
+  // El icono de PC marca de donde sale el jugador: la sesion de este PC
+  // (local) o un PC de la sala. La PC sigue sin ser un jugador por si sola:
+  // esta fila solo existe porque hay un movil conectado.
   st.pc = entry === localEntry();
   st.phone = true;
   st.owner = (owners || phoneOwners()).get(entry.id) || null;
@@ -1497,12 +1955,16 @@ function phoneState(entry, owners) {
   return st;
 }
 
+/* ------------------------------------------------------------------ */
+/*  WebSockets                                                        */
+/* ------------------------------------------------------------------ */
 const wssHost = new WebSocketServer({ noServer: true });
 const wssPhone = new WebSocketServer({ noServer: true });
 const wssOnline = new WebSocketServer({ noServer: true });
 
 function broadcastHost() {
-
+  // Todo cambio de sala o de movil pasa por aqui: buen sitio para ajustar los
+  // jugadores remotos dentro del juego.
   reconcileGhosts();
   const data = JSON.stringify({ type: 'state', state: roomState() });
   for (const client of wssHost.clients) {
@@ -1510,12 +1972,13 @@ function broadcastHost() {
   }
 }
 
+/** Transporte de un WebSocket directo (misma red, IP o tunel). */
 function socketLink(socket, req) {
   return {
     ip: clientIp(req),
     isOpen: () => socket.readyState === 1,
     send: (obj) => { if (socket.readyState === 1) socket.send(JSON.stringify(obj)); },
-    close: () => { try { socket.close(); } catch {  } },
+    close: () => { try { socket.close(); } catch { /* noop */ } },
     onMessage: (fn) => socket.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
@@ -1525,11 +1988,13 @@ function socketLink(socket, req) {
   };
 }
 
+/* Un PC remoto se conecta aqui para entrar a la sala del anfitrion
+   (por /ws/online, directo o a traves del tunel de Cloudflare). */
 wssOnline.on('connection', (socket, req) => createOnlineMember(socketLink(socket, req)));
 
 function createOnlineMember(link) {
   if (online.role !== 'host') {
-    try { link.send({ type: 'closed' }); } catch {  }
+    try { link.send({ type: 'closed' }); } catch { /* noop */ }
     link.close();
     return;
   }
@@ -1562,7 +2027,7 @@ function createOnlineMember(link) {
       hostName: online.hostName,
       admin: member.id === online.adminId,
     });
-  } catch {  }
+  } catch { /* noop */ }
   broadcastOnlineRoom();
 
   function applyMember(msg) {
@@ -1616,7 +2081,7 @@ function createOnlineMember(link) {
       relayPlay(member.id, cleanPlay(msg));
     } else if (msg.type === 'ping') {
       member.lastSeen = Date.now();
-      try { link.send({ type: 'pong' }); } catch {  }
+      try { link.send({ type: 'pong' }); } catch { /* noop */ }
     }
   });
 
@@ -1629,6 +2094,8 @@ function createOnlineMember(link) {
   });
 }
 
+/* Copia el avatar del perfil desde el juego a cache/avatars/<id>.<ext>.
+   Asi el panel y el movil pueden mostrarlo sin depender del proxy del juego. */
 function cacheAvatar(entry, gamePath, done) {
   if (!gamePath || typeof gamePath !== 'string' || gamePath.charAt(0) !== '/') return;
   if (gamePath === entry.avatarSrc) return;
@@ -1641,7 +2108,7 @@ function cacheAvatar(entry, gamePath, done) {
   const req = http.get(GAME_HTTP + gamePath, (up) => {
     if (up.statusCode !== 200) {
       up.resume();
-      entry.avatarSrc = null;
+      entry.avatarSrc = null; // se reintenta en el siguiente estado
       return;
     }
     const chunks = [];
@@ -1670,24 +2137,101 @@ wssHost.on('connection', (socket) => {
       room.code = randomCode();
       broadcastHost();
       startTunnel();
+      publishRoom();
     } else if (msg.type === 'close-room') {
+      const oldCode = room.code;
       room.code = null;
       broadcastHost();
       stopTunnel();
+      unpublishRoom(oldCode);
     }
   });
 });
 
+/* Un movil que se cae (pantalla bloqueada, cambio de app, tunel) puede volver
+   enseguida. Durante un margen se conserva su GamePhone para que el juego no
+   lo cuente como otro jugador; el panel deja de mostrarlo al instante. */
+const PHONE_GRACE = 45 * 1000;
+const parkedPhones = new Map(); // dev -> entry (sin socket, con GamePhone vivo)
+
+/** Una sesion de movil: el socket puede ser directo (wifi) o venir del backend. */
 function createPhoneSession(transport) {
+  const dev = transport.dev || null;
+  const parked = dev ? parkedPhones.get(dev) : null;
+  if (parked) {
+    parkedPhones.delete(dev);
+    clearTimeout(parked.parkTimer);
+    parked.parkTimer = null;
+    room.phones.set(parked.id, parked);
+    parked.attach(transport);
+    console.log(`  Movil ${parked.id} vuelve (mismo dispositivo)`);
+    broadcastHost();
+    syncLocalToOnline();
+    return parked;
+  }
+
   const clientId = nextPhoneId++;
   const game = new GamePhone(clientId);
-  const send = (obj) => transport.send(obj);
-  const entry = { id: clientId, game, send, remote: !!transport.remote, ip: transport.ip || null };
+  const entry = {
+    id: clientId,
+    dev,
+    game,
+    transport: null,
+    remote: !!transport.remote,
+    ip: transport.ip || null,
+    ready: false,
+  };
+  entry.send = (obj) => { if (entry.transport) entry.transport.send(obj); };
+  const send = (obj) => entry.send(obj);
+
+  /** Engancha un socket nuevo a este jugador (primera vez o reconexion). */
+  entry.attach = (tr) => {
+    entry.transport = tr;
+    entry.ip = tr.ip || entry.ip;
+    tr.onMessage((msg) => {
+      if (msg.type === 'ping') { entry.send({ type: 'pong' }); return; }
+      entry.onMessage(msg);
+    });
+    tr.onClose(() => {
+      if (entry.transport !== tr) return;
+      entry.detach();
+    });
+
+    entry.send({ type: 'joined', id: entry.id });
+    entry.send({ type: 'game-state', state: phoneState(entry) });
+    entry.send({ type: 'online', online: onlineState() });
+    if (entry.ready) entry.send({ type: 'ready' });
+  };
+
+  /** El socket se cerro: el panel lo quita; el juego espera un poco. */
+  entry.detach = () => {
+    if (!entry.transport) return;
+    entry.transport = null;
+    room.phones.delete(entry.id);
+    console.log(`  Movil ${entry.id} desconectado`);
+
+    if (dev) {
+      parkedPhones.set(dev, entry);
+      entry.parkTimer = setTimeout(() => {
+        entry.parkTimer = null;
+        if (parkedPhones.get(dev) === entry) parkedPhones.delete(dev);
+        entry.game.stop();
+        console.log(`  Movil ${entry.id} no volvio: jugador liberado`);
+      }, PHONE_GRACE);
+      if (entry.parkTimer.unref) entry.parkTimer.unref();
+    } else {
+      entry.game.stop();
+    }
+
+    broadcastHost();
+    syncLocalToOnline();
+  };
+
   room.phones.set(clientId, entry);
 
   game.on('state', (st) => {
     if (!st.connected) entry.ready = false;
-
+    // El jugador de este PC entra a elegir bailarin: los fantasmas de los demas PCs se reinician.
     if (st.lobby && !entry.wasLobby && entry === localEntry() && online.role) sendPlay({ lobby: true });
     entry.wasLobby = !!st.lobby;
 
@@ -1695,6 +2239,7 @@ function createPhoneSession(transport) {
     broadcastHost();
     syncLocalToOnline();
 
+    // Si el juego manda un avatar de perfil, se guarda una copia local
     cacheAvatar(entry, st.avatar, () => {
       send({ type: 'game-state', state: phoneState(entry) });
       broadcastHost();
@@ -1706,9 +2251,28 @@ function createPhoneSession(transport) {
     broadcastHost();
   });
   game.on('game', (msg) => {
-
+    // Registro para depurar que llega al movil
     fs.appendFile(UI_LOG, JSON.stringify({ at: Date.now(), cls: msg.__class, msg }) + '\n', () => {});
 
+    // Puntaje de este jugador según el juego de ESTE PC.
+    const recap = recapOf(msg);
+    if (recap) {
+      const st = game.state();
+      const key = [st.name, st.song, recap.score, recap.stars, recap.recapType].join('|');
+      if (entry.lastRecap !== key) {
+        entry.lastRecap = key;
+        scoreLog('local', {
+          player: 'local', phone: clientId, name: st.name, song: st.song,
+          room: online.role || null, ...recap,
+        });
+        reportScore({
+          player: localPlayerKey(), name: st.name, song: st.song || localSong(),
+          score: recap.score, stars: recap.stars, kind: 'local',
+        });
+      }
+    }
+
+    // Solo lo que al movil le interesa para su interfaz
     if (
       msg.__class === 'JD_PhoneUiSetupData' ||
       msg.__class === 'JD_ProfilePhoneUiData' ||
@@ -1720,21 +2284,18 @@ function createPhoneSession(transport) {
     }
   });
 
-  game.start();
-  send({ type: 'joined', id: clientId });
-  send({ type: 'game-state', state: phoneState(entry) });
-  send({ type: 'online', online: onlineState() });
-  broadcastHost();
-  syncLocalToOnline();
-
-  transport.onMessage((msg) => {
+  entry.onMessage = (msg) => {
+    if (msg.type === 'bye') {
+      try { if (entry.transport) entry.transport.close(); } catch { /* noop */ }
+      return;
+    }
     const isLocal = entry === localEntry() && !!online.role;
 
     if (msg.type === 'accel') {
       const v = msg.v;
       if (Array.isArray(v) && v.length === 3) {
         game.pushAccel(v[0], v[1], v[2]);
-
+        // Los fantasmas de este jugador en los otros PCs bailan con estos datos.
         if (isLocal && game.sending && v.every((n) => Number.isFinite(+n))) relayAccel(v);
       }
     } else if (msg.type === 'action') {
@@ -1758,37 +2319,71 @@ function createPhoneSession(transport) {
         if (Number.isInteger(c) && c >= 0 && c < 8) sendPlay({ coach: c });
       }
 
+      // El anfitrion manda la pausa a toda la sala.
       if (msg.name === 'pause' && online.role === 'host' && localEntry() === entry) {
         broadcastSync('pause');
       }
     }
-  });
+  };
 
-  transport.onClose(() => {
-    game.stop();
-    room.phones.delete(clientId);
-    broadcastHost();
-    syncLocalToOnline();
-  });
+  entry.attach(transport);
+  game.start();
+  broadcastHost();
+  syncLocalToOnline(); // la sala ve al momento que este jugador tiene movil
 
+  console.log(`  Movil ${entry.id} conectado` + (dev ? ' (dispositivo estable)' : ''));
   return entry;
 }
 
 wssPhone.on('connection', (socket, req) => {
+  // Latido: el tunel puede dejar abierto un socket cuyo movil ya no esta
+  // (pantalla bloqueada, red perdida). Sin esto el jugador se queda colgado.
+  socket.isAlive = true;
+  socket.on('pong', () => { socket.isAlive = true; });
+
+  let dev = '';
+  try {
+    dev = String(new URL(req.url, 'https://x').searchParams.get('dev') || '')
+      .replace(/[^A-Za-z0-9_-]/g, '').slice(0, 48);
+  } catch { /* sin dev */ }
+
   createPhoneSession({
+    dev,
     ip: clientIp(req),
     send: (obj) => { if (socket.readyState === 1) socket.send(JSON.stringify(obj)); },
+    close: () => { try { socket.close(); } catch { /* noop */ } },
     onMessage: (fn) => socket.on('message', (raw) => {
+      socket.isAlive = true;
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
       fn(msg);
     }),
-    onClose: (fn) => socket.on('close', fn),
+    onClose: (fn) => { socket.on('close', fn); socket.on('error', fn); },
   });
 });
 
+/* Un ping cada 30 s; si el movil no contesta en el siguiente, se cierra.
+   El navegador responde a los ping del protocolo aunque la pestaña este oculta. */
+setInterval(() => {
+  for (const client of wssPhone.clients) {
+    if (client.isAlive === false) {
+      try { client.terminate(); } catch { /* noop */ }
+      continue;
+    }
+    client.isAlive = false;
+    try { client.ping(); } catch { /* noop */ }
+  }
+}, 30000).unref();
+
+/* ------------------------------------------------------------------ */
+/*  Enlace con el backend publico (Render)                             */
+/* ------------------------------------------------------------------ */
+/* El PC llama hacia fuera, asi el movil puede entrar desde cualquier red
+   aunque aqui no haya IP fija, puertos abiertos ni certificado valido. */
+
 const GAME_CACHE = new Map();
 
+/** Imagenes del juego que pide un movil remoto (via backend). */
 function fetchGameResource(gamePath, cb) {
   if (!gamePath || gamePath.charAt(0) !== '/' || gamePath.indexOf('..') !== -1) {
     cb({ error: 'ruta' });
@@ -1831,6 +2426,9 @@ function fetchGameResource(gamePath, cb) {
   req.setTimeout(6000, () => { req.destroy(); cb({ error: 'timeout' }); });
 }
 
+/* ------------------------------------------------------------------ */
+/*  HTTP(S)                                                           */
+/* ------------------------------------------------------------------ */
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -1853,7 +2451,7 @@ function serveStatic(res, file) {
   fs.readFile(full, (err, buf) => {
     if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }).end('404'); return; }
     const headers = { 'Content-Type': MIME[path.extname(full).toLowerCase()] || 'application/octet-stream' };
-
+    // Sin cache: asi el movil siempre recibe la ultima version de la interfaz
     if (/\.(html|js|css)$/i.test(full)) headers['Cache-Control'] = 'no-store, must-revalidate';
     res.writeHead(200, headers);
     res.end(buf);
@@ -1868,6 +2466,10 @@ function proxyGame(req, res) {
     (up) => {
       const headers = { ...up.headers };
       delete headers['content-security-policy'];
+      delete headers['cross-origin-resource-policy'];
+      delete headers['cross-origin-embedder-policy'];
+      // La PWA vive en GitHub Pages: las imágenes son cross-origin.
+      headers['access-control-allow-origin'] = '*';
       res.writeHead(up.statusCode || 502, headers);
       up.pipe(res);
     },
@@ -1900,8 +2502,17 @@ async function handler(req, res) {
   const p = url.pathname;
   const secure = isSecure(req);
 
+  // CORS solo para lecturas que necesita la PWA (imagenes del juego y avatares).
+  // No se abre para POST: crear/cerrar salas sigue siendo solo del panel.
+  if ((req.method === 'GET' || req.method === 'HEAD') &&
+      (p.startsWith('/game/') || p.startsWith('/api/avatar/'))) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
   if (p === '/host') return serveStatic(res, 'host.html');
 
+  // La raiz y /m son la misma pantalla: pedir el codigo en el movil. Asi el
+  // enlace publico funciona con o sin "?code=...".
   if (p === '/' || p === '/m' || p === '/mobile') {
     if (!secure) {
       const host = (req.headers.host || '').split(':')[0] || PRIMARY_IP;
@@ -1911,6 +2522,16 @@ async function handler(req, res) {
     return serveStatic(res, 'mobile.html');
   }
 
+  // Mandos, Kinect y camara que ve Windows (solo lectura)
+  if (p === '/api/devices') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
+    });
+    return res.end(JSON.stringify(devices.summary()));
+  }
+
   if (p === '/api/state') {
     res.writeHead(200, {
       'Content-Type': 'application/json',
@@ -1918,7 +2539,7 @@ async function handler(req, res) {
       Pragma: 'no-cache',
     });
     const st = roomState();
-
+    // Solo para probar el panel sin tener que conectar un movil de verdad
     if (url.searchParams.get('debug') === '1') {
       st.phones = [
         { id: 1, name: 'usagi', avatar: null, avatarUrl: '/api/qr?text=usagi', song: 'DADDY', connected: true, sending: true, inputAllowed: true, samples: 100, error: null },
@@ -1947,15 +2568,35 @@ async function handler(req, res) {
     });
   }
 
+  // La ventana nativa usa estos endpoints
   if (p === '/api/room') {
+    // Lectura minima para comprobar desde fuera que el tunel sirve esta sala
+    // (la usa el backend de emparejamiento de la PWA).
+    if (req.method === 'GET') {
+      const code = url.searchParams.get('code') || '';
+      const ts = tunnelState();
+      if (!room.code || code !== room.code) {
+        return jsonResponse(res, { ok: false, error: 'no-room' }, 404);
+      }
+      return jsonResponse(res, {
+        ok: true,
+        code: room.code,
+        tunnel: ts.active ? ts.url : '',
+        ips: IPS.map((i) => i.address),
+        httpsPort: HTTPS_PORT,
+        at: Date.now(),
+      });
+    }
     if (req.method === 'POST') {
       if (!room.code) room.code = randomCode();
       startOnlineHost();
       broadcastHost();
-      startTunnel();
+      startTunnel(); // el enlace publico sale en cuanto Cloudflare responde
+      publishRoom();
     } else if (req.method === 'DELETE') {
+      const oldCode = room.code;
       if (online.role === 'member') {
-
+        // Salir de la sala remota sin cerrar la sala local del movil.
         leaveOnline();
       } else {
         stopOnlineHost();
@@ -1963,6 +2604,7 @@ async function handler(req, res) {
       }
       broadcastHost();
       stopTunnel();
+      unpublishRoom(oldCode);
     } else {
       res.writeHead(405).end();
       return;
@@ -1970,6 +2612,7 @@ async function handler(req, res) {
     return jsonResponse(res, roomState());
   }
 
+  /* ---- Sala online entre PCs ---- */
   if (p === '/api/online' || p === '/api/online/join' || p === '/api/online/host' ||
       p === '/api/online/leave' || p === '/api/online/require-ip') {
     if (req.method === 'GET') return jsonResponse(res, onlineState());
@@ -2027,6 +2670,7 @@ async function handler(req, res) {
 
   if (p.startsWith('/public/')) return serveStatic(res, p.slice('/public/'.length));
 
+  // cualquier otro archivo suelto (styles.css, etc.)
   const guess = p.slice(1);
   if (guess && fs.existsSync(path.join(PUBLIC_DIR, guess))) return serveStatic(res, guess);
 
@@ -2077,12 +2721,13 @@ function routeUpgrade(req, socket, head, secure) {
   socket.destroy();
 }
 
+/* Latido de la sala online: limpia PCs que ya no responden. */
 setInterval(() => {
   if (online.role === 'member' && online.ws && online.ws.readyState === 1) {
     try {
       online.ws.send(JSON.stringify({ type: 'ping' }));
       online.ws.send(JSON.stringify({ type: 'clock', t0: Date.now() }));
-    } catch {  }
+    } catch { /* noop */ }
   }
 
   if (online.role !== 'host') return;
@@ -2092,7 +2737,7 @@ setInterval(() => {
   for (const m of [...online.members.values()]) {
     if (now - m.lastSeen > 30000) {
       online.members.delete(m.id);
-      try { m.link.close(); } catch {  }
+      try { m.link.close(); } catch { /* noop */ }
       changed = true;
     }
   }
@@ -2102,6 +2747,27 @@ setInterval(() => {
     broadcastOnlineRoom();
   }
 }, 10000);
+
+/* Mandos, Kinect y camara: se sondean en segundo plano y el panel se entera
+   al vuelo. Es solo lectura; no abre ningun dispositivo. */
+devices.start();
+let devicesPush = null;
+devices.onChange(() => {
+  if (devicesPush) return;
+  devicesPush = setTimeout(() => {
+    devicesPush = null;
+    try { broadcastHost(); } catch { /* arranque */ }
+  }, 250);
+  if (devicesPush.unref) devicesPush.unref();
+});
+
+/* Arranque del servidor: deja siempre logs/ghost.log (aunque no haya sala). */
+ghostLog('boot', {
+  pid: process.pid, node: process.version,
+  platform: process.platform, arch: process.arch,
+  devices: devices.list().map((d) => d.kind + ':' + d.name),
+});
+scoreLog('boot', { pid: process.pid, node: process.version });
 
 plainServer.listen(HTTP_PORT, '0.0.0.0');
 
@@ -2126,11 +2792,13 @@ server.listen(HTTPS_PORT, '0.0.0.0', () => {
   console.log('');
 });
 
+/* Al cerrar el servidor no se deja cloudflared huerfano. */
 function killTunnel() {
   const proc = tunnelProc;
   tunnelProc = null;
+  try { devices.stop(); } catch { /* noop */ }
   if (!proc) return;
-  try { proc.kill(); } catch {  }
+  try { proc.kill(); } catch { /* noop */ }
 }
 
 process.on('exit', killTunnel);

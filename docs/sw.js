@@ -5,7 +5,7 @@
  * Solo cachea la interfaz (mismo origen, GitHub Pages). El backend de
  * emparejamiento y el túnel del PC son otro origen y nunca se interceptan.
  */
-const VERSION = 'jd-control-pwa-v1';
+const VERSION = 'jd-control-pwa-v2';
 const SHELL = [
   './',
   './index.html',
@@ -57,19 +57,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Estáticos: caché primero y actualización en segundo plano.
+  // Estáticos: red primero (para recibir la última versión), caché si falla.
   event.respondWith(
-    caches.match(req).then((hit) => {
-      const net = fetch(req)
-        .then((res) => {
-          if (res && res.ok) {
-            const copy = res.clone();
-            caches.open(VERSION).then((cache) => cache.put(req, copy)).catch(() => {});
-          }
-          return res;
-        })
-        .catch(() => hit);
-      return hit || net;
-    })
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(VERSION).then((cache) => cache.put(req, copy)).catch(() => {});
+        }
+        return res;
+      })
+      .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
   );
 });
