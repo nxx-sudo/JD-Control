@@ -18,7 +18,7 @@
 - **Reliable reconnection**: the installable app retries while the panel publishes the tunnel and while the free backend wakes up.
 - **Real disconnect detection**: the panel removes a phone as soon as it leaves; if it comes back within 45 seconds it keeps the same player instead of creating a duplicate.
 - **Heartbeat**: the PC and the phone check each other every few seconds, so a closed screen or a lost network no longer leaves a ghost player.
-- **Phones with Kinect or motion controllers**: both can be used in the same room; see [Phones together with Kinect or a controller](#4-phones-together-with-kinect-or-a-controller).
+- **Phones and Kinect**: they can coexist, but the game uses one scoring mode at a time; see [Phones together with Kinect or a controller](#4-phones-together-with-kinect-or-a-controller).
 
 ## What it is
 
@@ -99,13 +99,13 @@ A phone keeps the same player if it reconnects. If it leaves the room, the panel
 
 ### 4. Phones together with Kinect or a controller
 
-The game can use several input sources at the same time, and JD CONTROL only adds phone players; it does not open, block or replace the Kinect or the controllers. Because of that:
+JD CONTROL only adds phone controllers; it does not open, block or replace the Kinect or the controllers. The game, however, chooses **one scoring mode** in the "How do you prefer to play?" screen:
 
-- **Kinect (or Legacy Sensor) + phones**: valid. Keep the Kinect working as usual and join phones as extra players.
-- **Motion controllers + phones**: valid too. DualShock/DualSense, Joy-Con, Wiimote, PS Move and a camera are treated as dancing devices.
-- **Standard Xbox-style gamepad**: it usually only moves through the menus, so it does not score as a dancer. Use phones for the players.
+- **Kinect / Legacy Sensor mode**: the Kinect scores. A phone can still join and move through the menus, but the game does not ask it for accelerometer data, so it does not score. Keep this in mind before mixing both.
+- **Mobile device mode**: phones are the dancers and score normally. Use this for local or online rooms with several players.
+- **Motion controllers**: DualShock/DualSense, Joy-Con, Wiimote and PS Move are detected as dancing devices. A standard Xbox-style gamepad usually only moves through the menus and does not score.
 
-For online rooms the simplest setup is one phone (or the installable app) per player; the PC that hosts the room can keep its Kinect or controller as another input if the game accepts it.
+So the reliable setup is one phone (or the installable app) per player in **Mobile device** mode. Kinect can stay connected, but it will not add a second scoring dancer while the phone mode is selected. A mixed room where Kinect and phones score at the same time is not supported by the game itself.
 
 ### 5. Close the room
 
