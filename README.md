@@ -186,4 +186,3 @@ package.bat          builds dist/ ready to share
 
 [GNU GPL v3](LICENSE). You can use, modify and redistribute it as long as it stays open source.
 
-> The Discord badge is a placeholder: replace it with your own server invite.
