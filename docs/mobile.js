@@ -1125,7 +1125,9 @@ document.addEventListener('visibilitychange', async () => {
   // Al volver de segundo plano el socket puede haber muerto: se reconecta
   // sin pasar por la pantalla del código.
   if (roomCode && hostUrl && !ws && !connecting && !retrying &&
-      (screens.pad.classList.contains('active') || screens.lobby.classList.contains('active'))) {
+      (screens.pad.classList.contains('active') ||
+       screens.lobby.classList.contains('active') ||
+       screens.ready.classList.contains('active'))) {
     reconnectTries = 0;
     startRelay(0);
   }
