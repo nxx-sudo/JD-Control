@@ -13,13 +13,6 @@
 
 ---
 
-## What's new in 0.2 BETA
-
-- **Reliable reconnection**: the installable app retries while the panel publishes the tunnel and while the free backend wakes up.
-- **Real disconnect detection**: the panel removes a phone as soon as it leaves; if it comes back within 45 seconds it keeps the same player instead of creating a duplicate.
-- **Heartbeat**: the PC and the phone check each other every few seconds, so a closed screen or a lost network no longer leaves a ghost player.
-- **Phones and Kinect**: they can coexist, but the game uses one scoring mode at a time; see [Phones together with Kinect or a controller](#4-phones-together-with-kinect-or-a-controller).
-
 ## What it is
 
 JD CONTROL is a desktop mod that opens a **local room** on your PC and turns phones into controllers (arrows, OK, pause and the accelerometer for scoring). It does not patch the game: it talks to it through the interface `Legacy.exe` already exposes.
