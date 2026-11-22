@@ -2,7 +2,6 @@
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity version="1.0.0.0" name="JDControl.app" type="win32" />
 
-  <!-- Se ejecuta con los permisos del usuario: no pide administrador. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
@@ -11,7 +10,6 @@
     </security>
   </trustInfo>
 
-  <!-- Windows 7 a 11. Sin dpiAware: el panel mantiene su escala actual. -->
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>
       <supportedOS Id="{35138b9a-5d96-4fbd-8e2d-a2440225f93a}" />
