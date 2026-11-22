@@ -18,7 +18,7 @@ namespace JDControl
         public const string APP_VERSION = "0.2";
         public const string APP_CHANNEL = "BETA";
         const int ROW_H = 34;
-        const int CAPTION_H = 32; // barra de titulo propia (mismo color que el fondo)
+        const int CAPTION_H = 32;
 
         static Process serverProc;
         static bool serverExternal;
@@ -54,7 +54,6 @@ namespace JDControl
         Button copyButton;
         bool suppressRequireIp = false;
 
-        // Iconos Lucide ya rasterizados (se dibujan muchas veces por segundo)
         Bitmap iconPc;
         Bitmap iconPhone;
         Bitmap iconPlus;
@@ -71,16 +70,16 @@ namespace JDControl
             public string Name;
             public string Song;
             public string AvatarUrl;
-            public int State; // 0 = fuera del juego, 1 = en el menu, 2 = bailando
-            public bool AsciiName; // la fuente JD (DEMO) no dibuja acentos
+            public int State;
+            public bool AsciiName;
             public bool Admin;
-            public bool Online; // fila de otro PC de la sala
-            public bool Pc;     // juega desde un PC con JD CONTROL
-            public bool Phone;  // tiene el movil conectado como control
-            public bool Ready;  // ha marcado listo para esta cancion
-            public string Device; // mando/kinect/camara detectado (null en jugadores)
-            public bool Dance;    // ese dispositivo puede puntuar (si no, solo menus)
-            public string StateText; // texto fijo de la columna estado (dispositivos)
+            public bool Online;
+            public bool Pc;
+            public bool Phone;
+            public bool Ready;
+            public string Device;
+            public bool Dance;
+            public string StateText;
 
             public string Signature
             {
@@ -89,7 +88,7 @@ namespace JDControl
         }
 
         List<PlayerRow> playerRows = new List<PlayerRow>();
-        bool playersEmpty = true; // true cuando no hay nadie conectado
+        bool playersEmpty = true;
 
         Dictionary<string, Image> avatarCache = new Dictionary<string, Image>();
         HashSet<string> avatarPending = new HashSet<string>();
@@ -153,7 +152,6 @@ namespace JDControl
             FormClosing += OnFormClosing;
         }
 
-        /** Sin borde del sistema no hay sombra: se pide CS_DROPSHADOW. */
         protected override CreateParams CreateParams
         {
             get
@@ -164,9 +162,6 @@ namespace JDControl
             }
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Tipografia e icono                                           */
-        /* ------------------------------------------------------------ */
         [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
         static extern int AddFontResourceEx(string lpFileName, uint fl, IntPtr pdv);
 
@@ -179,22 +174,20 @@ namespace JDControl
         [DllImport("dwmapi.dll")]
         static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
-        /** Barra de titulo oscura para los dialogos (Win10 1809+ y Win11). */
         static void DarkTitleBar(IntPtr hwnd)
         {
             int on = 1;
             if (DwmSetWindowAttribute(hwnd, 20, ref on, 4) != 0)
                 DwmSetWindowAttribute(hwnd, 19, ref on, 4);
 
-            int caption = 10 | (10 << 8) | (12 << 16);   // 0x000C0A0A
-            DwmSetWindowAttribute(hwnd, 35, ref caption, 4);  // Win11
+            int caption = 10 | (10 << 8) | (12 << 16);
+            DwmSetWindowAttribute(hwnd, 35, ref caption, 4);
             int text = 230 | (230 << 8) | (236 << 16);
-            DwmSetWindowAttribute(hwnd, 36, ref text, 4);     // Win11
+            DwmSetWindowAttribute(hwnd, 36, ref text, 4);
             int border = 30 | (30 << 8) | (36 << 16);
-            DwmSetWindowAttribute(hwnd, 34, ref border, 4);   // Win11
+            DwmSetWindowAttribute(hwnd, 34, ref border, 4);
         }
 
-        /** Carga RBNo2.1 Black solo para este proceso (no instala nada). */
         void LoadJdFont()
         {
             try
@@ -203,7 +196,7 @@ namespace JDControl
                     "public", "fonts", "RBNo2.1-Black.otf");
                 if (!File.Exists(p)) return;
 
-                AddFontResourceEx(p, 0x10, IntPtr.Zero); // FR_PRIVATE
+                AddFontResourceEx(p, 0x10, IntPtr.Zero);
                 jdFonts = new PrivateFontCollection();
                 jdFonts.AddFontFile(p);
                 if (jdFonts.Families.Length > 0) jdFamily = jdFonts.Families[0];
@@ -211,10 +204,6 @@ namespace JDControl
             catch { jdFamily = null; }
         }
 
-        /**
-         * RBNo2.1 no trae tildes ni "ñ": las pinta como cajas. Todo lo que se
-         * dibuja con esa fuente pasa antes por aquí.
-         */
         static string JdText(string text)
         {
             if (string.IsNullOrEmpty(text)) return "";
@@ -243,14 +232,12 @@ namespace JDControl
             return new string(c);
         }
 
-        /** RBNo2.1 solo trae un peso: se usa recta, sin negrita sintetica. */
         Font JdFont(float size, FontStyle fallbackStyle)
         {
             if (jdFamily != null) return new Font(jdFamily, size, FontStyle.Regular);
             return new Font("Segoe UI", size, fallbackStyle);
         }
 
-        /** Baja el tamaño del titulo hasta que entra en el ancho del panel. */
         Font FitJdTitle(string text, int width)
         {
             float size = 18f;
@@ -283,13 +270,8 @@ namespace JDControl
             return null;
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Interfaz                                                     */
-        /* ------------------------------------------------------------ */
         void BuildUi()
         {
-            // El contenido vive en un panel propio para dejar arriba la barra
-            // de titulo, con el mismo color que el fondo del exe.
             content = new Panel();
             content.SetBounds(0, CAPTION_H, 420, 648);
             content.BackColor = BackColor;
@@ -350,11 +332,8 @@ namespace JDControl
             lblUrl.ForeColor = Color.FromArgb(120, 120, 130);
             lblUrl.TextAlign = ContentAlignment.MiddleCenter;
             lblUrl.AutoEllipsis = true;
-            // 44..376 queda centrado en el panel (210) y deja libre el margen
-            // derecho donde va el boton de copiar (378..396).
             lblUrl.SetBounds(44, 311, 332, 20);
 
-            // Copiar código / enlace / IP con un clic (compartir es mas practico)
             tips = new ToolTip();
             tips.AutoPopDelay = 4000;
             tips.InitialDelay = 350;
@@ -364,8 +343,6 @@ namespace JDControl
             btnCopyCode = MakeCopyButton(364, 95, 26, Color.FromArgb(20, 20, 24), L.T("copyCode"));
             btnCopyCode.Click += delegate { CopyToClipboard(currentCode, btnCopyCode); };
 
-            // Los dos comparten el mismo hueco: solo se ve el que toca
-            // (enlace si hay tunel, IP si no).
             btnCopyLink = MakeCopyButton(378, 312, 18, BackColor, L.T("copyLink"));
             btnCopyLink.Click += delegate { CopyToClipboard(currentUrl, btnCopyLink); };
             btnCopyLink.Visible = false;
@@ -374,7 +351,6 @@ namespace JDControl
             btnCopyIp.Click += delegate { CopyToClipboard(currentIp, btnCopyIp); };
             btnCopyIp.Visible = false;
 
-            // Solo el anfitrion decide si el codigo basta o se exige la IP.
             chkRequireIp = new CheckBox();
             chkRequireIp.Text = L.T("requireIp");
             chkRequireIp.Font = new Font("Segoe UI", 7.5f);
@@ -412,7 +388,6 @@ namespace JDControl
             pnlPlayers.BackColor = Color.FromArgb(14, 14, 17);
             pnlPlayers.Paint += DrawPlayersTable;
 
-            // Los tres botones comparten exactamente el mismo ancho.
             btnOnline = MakeButton(L.T("openServer"), 24, 566, 118);
             btnOnline.BackColor = Color.FromArgb(30, 30, 36);
             btnOnline.ForeColor = Color.FromArgb(238, 238, 243);
@@ -430,7 +405,6 @@ namespace JDControl
             btnJoin.ForeColor = Color.FromArgb(200, 200, 208);
             btnJoin.Click += delegate { ShowJoinDialog(); };
 
-            // Estado del tunel: se abre y se cierra junto con el servidor.
             lblTunnel = new Label();
             lblTunnel.Text = L.T("stNoTunnel");
             lblTunnel.Font = new Font("Segoe UI", 7.5f);
@@ -439,7 +413,6 @@ namespace JDControl
             lblTunnel.AutoSize = false;
             lblTunnel.SetBounds(24, 606, 372, 18);
 
-            // Segunda mitad de la linea, en verde ("online activo").
             lblTunnelOk = new Label();
             lblTunnelOk.Text = "";
             lblTunnelOk.Font = lblTunnel.Font;
@@ -449,7 +422,6 @@ namespace JDControl
             lblTunnelOk.SetBounds(24, 606, 372, 18);
             lblTunnelOk.Visible = false;
 
-            // Aviso de version nueva: debajo de los botones, sin tapar nada.
             lblUpdate = new Label();
             lblUpdate.Text = "";
             lblUpdate.Font = new Font("Segoe UI", 7.5f, FontStyle.Bold);
@@ -489,7 +461,6 @@ namespace JDControl
             btnCopyIp.BringToFront();
         }
 
-        /** Barra de titulo propia: fondo del panel, sin borde y con dos botones. */
         void BuildCaption()
         {
             caption = new Panel();
@@ -503,7 +474,6 @@ namespace JDControl
             btnClose = MakeCaptionButton("✕", 420 - 46, 9.5f);
             btnClose.Click += delegate { Close(); };
 
-            // Ajustes: solo el icono, sin borde ni fondo (queda limpio).
             btnSettings = MakeCaptionButton("", 420 - 138, 9f);
             btnSettings.Image = Lucide.Render(Lucide.Sliders, 15, Color.FromArgb(150, 150, 162));
             btnSettings.ImageAlign = ContentAlignment.MiddleCenter;
@@ -537,7 +507,7 @@ namespace JDControl
         {
             if (e.Button != MouseButtons.Left) return;
             ReleaseCapture();
-            SendMessage(Handle, 0xA1, (IntPtr)0x2, IntPtr.Zero); // WM_NCLBUTTONDOWN / HTCAPTION
+            SendMessage(Handle, 0xA1, (IntPtr)0x2, IntPtr.Zero);
         }
 
         void DrawPlayersTable(object sender, PaintEventArgs e)
@@ -568,8 +538,8 @@ namespace JDControl
                 return;
             }
 
-            const int COL_CIRCLE = 34;   // zona cuadrada del circulo de estado
-            const int COL_STATUS = 214;  // division nombre / estado
+            const int COL_CIRCLE = 34;
+            const int COL_STATUS = 214;
 
             int y = 1;
             int w = box.Width - 2;
@@ -581,14 +551,12 @@ namespace JDControl
 
                 Rectangle row = new Rectangle(1, y, w, ROW_H);
 
-                // Linea divisoria entre filas
                 if (i > 0)
                 {
                     using (Pen sep = new Pen(Color.FromArgb(24, 24, 29)))
                         g.DrawLine(sep, row.X + 12, row.Y, row.Right - 12, row.Y);
                 }
 
-                /* --- Columna 1: circulo de estado (sin halo) --- */
                 Color dot =
                     p.State == 2 ? Color.FromArgb(74, 190, 112) :
                     p.State == 1 ? Color.FromArgb(226, 184, 60) :
@@ -606,14 +574,12 @@ namespace JDControl
                 using (Pen ring = new Pen(Color.FromArgb(30, 0, 0, 0)))
                     g.DrawEllipse(ring, circle);
 
-                /* --- Divisiones de la tabla --- */
                 using (Pen div = new Pen(Color.FromArgb(38, 38, 44)))
                 {
                     g.DrawLine(div, COL_CIRCLE, row.Y + 7, COL_CIRCLE, row.Bottom - 7);
                     g.DrawLine(div, COL_STATUS, row.Y + 7, COL_STATUS, row.Bottom - 7);
                 }
 
-                /* --- Columna 2: avatar + nombre --- */
                 int nameX = COL_CIRCLE + 10;
 
                 Image avatar;
@@ -626,9 +592,6 @@ namespace JDControl
                     nameX = ar.Right + 7;
                 }
 
-                // Iconos de dispositivo a la derecha del nombre: [pc] + [movil]
-                // o el mando / Kinect / camara detectado (atenuado si solo sirve
-                // para menus, o sea, no puede puntuar en una cancion).
                 List<Image> icons = new List<Image>();
                 if (p.Pc) icons.Add(iconPc);
                 if (p.Pc && p.Phone) icons.Add(iconPlus);
@@ -657,7 +620,6 @@ namespace JDControl
                     ix += di.Width + 3;
                 }
 
-                /* --- Columna 3: estado y cancion --- */
                 string stateWord =
                     p.StateText != null ? p.StateText :
                     p.State == 2 ? L.T("stateDancing") :
@@ -707,7 +669,6 @@ namespace JDControl
             return b;
         }
 
-        /** Boton cuadrado con el icono "copy" de Lucide; al copiar pasa a "check". */
         Button MakeCopyButton(int x, int y, int size, Color surface, string tip)
         {
             int icon = size >= 24 ? 14 : 12;
@@ -773,7 +734,6 @@ namespace JDControl
             if (icons != null) b.Image = icons[copied ? 1 : 0];
         }
 
-        /** Activa/desactiva que la sala exija la IP ademas del codigo. */
         bool SetRequireIp(bool enabled)
         {
             try
@@ -802,13 +762,11 @@ namespace JDControl
             }
         }
 
-
         void BuildTray()
         {
             trayIcon = appIcon != null ? appIcon : MakeFallbackIcon();
 
             ContextMenuStrip menu = new ContextMenuStrip();
-            // Exactamente el mismo fondo que el exe; el menu no se queda blanco.
             menu.Renderer = new ToolStripProfessionalRenderer(new DarkMenuColors());
             menu.BackColor = BackColor;
             menu.ForeColor = Color.FromArgb(230, 230, 236);
@@ -854,11 +812,6 @@ namespace JDControl
             return Icon.FromHandle(h);
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Servidor                                                     */
-        /* ------------------------------------------------------------ */
-        /* Lo minimo que tiene que estar junto al exe para que arranque el servidor.
-           Si se comparte solo el .exe, el servidor no existe y nada funciona. */
         static readonly string[] REQUIRED_FILES = {
             "server.js", "cloudflared.exe",
             @"src\gamephone.js",
@@ -883,7 +836,6 @@ namespace JDControl
                 L.T("missingHelp") + AppDomain.CurrentDomain.BaseDirectory;
         }
 
-        /** node.exe incluido en runtime\ (paquete para compartir) o el instalado. */
         static string NodePath()
         {
             string bundled = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime", "node.exe");
@@ -919,7 +871,6 @@ namespace JDControl
                 psi.RedirectStandardError = true;
                 serverProc = Process.Start(psi);
 
-                // Sin esto un fallo de arranque es invisible: queda en logs/server.log
                 serverProc.OutputDataReceived += delegate (object s, DataReceivedEventArgs e) { LogServer(e.Data); };
                 serverProc.ErrorDataReceived += delegate (object s, DataReceivedEventArgs e) { LogServer(e.Data); };
                 serverProc.BeginOutputReadLine();
@@ -964,8 +915,6 @@ namespace JDControl
                     {
                         fails++;
 
-                        // El servidor se cayó (o nunca llegó a arrancar): reintentar
-                        // en vez de quedarse con el panel muerto.
                         bool dead = serverProc == null || serverProc.HasExited;
                         if (fails >= 2 && dead &&
                             (DateTime.Now - lastServerRetry).TotalSeconds > 10)
@@ -988,7 +937,6 @@ namespace JDControl
                 using (WebClient wc = new WebClient())
                 {
                     wc.Encoding = System.Text.Encoding.UTF8;
-                    // Sin cache: el panel tiene que ver los moviles en cuanto entran
                     wc.CachePolicy = new System.Net.Cache.HttpRequestCachePolicy(System.Net.Cache.HttpRequestCacheLevel.NoCacheNoStore);
                     wc.Headers[HttpRequestHeader.CacheControl] = "no-cache";
                     wc.Headers[HttpRequestHeader.Pragma] = "no-cache";
@@ -1020,8 +968,6 @@ namespace JDControl
             return st[key].ToString();
         }
 
-        /* JavaScriptSerializer devuelve ArrayList (no object[]) para los arrays,
-           por eso el panel nunca veia los moviles. Esto lo normaliza. */
         static List<object> AsList(object value)
         {
             List<object> list = new List<object>();
@@ -1065,16 +1011,11 @@ namespace JDControl
         static string lastPanelLog = "";
         static bool logsSending;
 
-        /* ------------------------------------------------------------ */
-        /*  Envio de logs al Discord (solo si el usuario lo activa)     */
-        /* ------------------------------------------------------------ */
-
         static string WebhookFile()
         {
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "webhook.txt");
         }
 
-        /** URL del webhook de Discord; las lineas con # son comentarios. */
         static string WebhookUrl()
         {
             try
@@ -1087,7 +1028,6 @@ namespace JDControl
                     if (line.Length == 0 || line.StartsWith("#")) continue;
                     if (line.StartsWith("https://")) return line;
 #if LOGS_TEST
-                    // Solo en la compilacion de prueba del envio de logs.
                     if (line.StartsWith("http://127.0.0.1:") || line.StartsWith("http://localhost:")) return line;
 #endif
                 }
@@ -1096,7 +1036,6 @@ namespace JDControl
             return "";
         }
 
-        /** Ultimos bytes de un log (Discord limita el tamaño por archivo). */
         static string ReadTail(string file, int maxBytes)
         {
             try
@@ -1134,7 +1073,6 @@ namespace JDControl
                 "Server PID: " + (serverProc != null ? serverProc.Id.ToString() : "n/d");
         }
 
-        /** Envia los logs en segundo plano; done recibe el estado para la UI. */
         static void SendLogs(string reason, Action<string> done)
         {
             if (logsSending)
@@ -1172,7 +1110,6 @@ namespace JDControl
             });
         }
 
-        /** POST multipart al webhook. null si fue bien; texto si fallo. */
         static string UploadLogs(string hook, string reason)
         {
             string logs = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
@@ -1184,7 +1121,7 @@ namespace JDControl
                 new string[] { "ui.jsonl",   Path.Combine(logs, "ui.jsonl") },
             };
 
-            const int MAX = 1024 * 1024; // 1 MB por archivo
+            const int MAX = 1024 * 1024;
             string boundary = "----JDControl" + DateTime.UtcNow.Ticks.ToString("x");
 
             JavaScriptSerializer ser = new JavaScriptSerializer();
@@ -1260,7 +1197,6 @@ namespace JDControl
             }
         }
 
-        /** Salida de node (arranque, errores) en logs/server.log. */
         static void LogServer(string line)
         {
             if (line == null) return;
@@ -1281,7 +1217,7 @@ namespace JDControl
 
         static void LogPanel(string line)
         {
-            if (line == lastPanelLog) return; // solo cambios, para no llenar el disco
+            if (line == lastPanelLog) return;
             lastPanelLog = line;
 
             try
@@ -1327,9 +1263,6 @@ namespace JDControl
             }
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Unirse a una sala online                                     */
-        /* ------------------------------------------------------------ */
         void ShowJoinDialog()
         {
             Form dlg = new Form();
@@ -1426,7 +1359,6 @@ namespace JDControl
                 string h = tbHost.Text.Trim();
                 string c = tbCode.Text.Replace(" ", "").Trim();
 
-                // Sin IP/URL el servidor busca la sala por codigo en la red local.
                 bool digits = c.Length == 5;
                 foreach (char ch in c)
                 {
@@ -1439,7 +1371,6 @@ namespace JDControl
                     return;
                 }
 
-                // Un dominio público puede tardar en responder: se espera fuera del hilo de la ventana.
                 ok.Enabled = false;
                 tbHost.Enabled = false;
                 tbCode.Enabled = false;
@@ -1526,8 +1457,6 @@ namespace JDControl
             }
             catch (WebException ex)
             {
-                // El servidor responde 400 con el motivo en el JSON: WebClient lo
-                // convierte en excepcion y antes solo se veia "(400) Bad Request".
                 if (ex.Response != null)
                 {
                     try
@@ -1556,16 +1485,11 @@ namespace JDControl
             return null;
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Estado                                                       */
-        /* ------------------------------------------------------------ */
         void ApplyState(Dictionary<string, object> st)
         {
             lastState = st;
             string code = st.ContainsKey("code") ? (st["code"] == null ? "" : st["code"].ToString()) : "";
 
-            // El enlace del movil: si el tunel esta listo manda ese, porque
-            // funciona desde cualquier red.
             Dictionary<string, object> tun = st.ContainsKey("tunnel")
                 ? st["tunnel"] as Dictionary<string, object> : null;
             tunnelActive = tun != null && AsBool(tun, "active");
@@ -1579,8 +1503,6 @@ namespace JDControl
             string shareUrl = usingTunnel
                 ? tunnelBase + "/m?code=" + code
                 : (code.Length == 5 ? localUrl : "");
-
-            // La IP se muestra tal cual, sin https:// ni puerto.
 
             SetTunnelStatus(usingTunnel, code);
 
@@ -1606,12 +1528,9 @@ namespace JDControl
             }
 
             currentIp = localIp;
-            // Se muestra la direccion publica sin el codigo (ya esta arriba);
-            // el QR y "copiar enlace" llevan el enlace completo.
             lblUrl.Text = usingTunnel ? tunnelBase + "/m" : localIp;
             tips.SetToolTip(lblUrl, usingTunnel ? shareUrl : localIp);
 
-            // Un solo boton de copiar: enlace si hay tunel, IP si no hay tunel.
             bool showLink = usingTunnel && currentUrl.Length > 0;
             btnCopyLink.Visible = showLink;
             btnCopyIp.Visible = !showLink && currentIp.Length > 0;
@@ -1626,7 +1545,6 @@ namespace JDControl
             string onlineError = Val(on, "error");
             bool requireIp = AsBool(on, "requireIp");
 
-            // La casilla solo manda si este PC es el anfitrion.
             suppressRequireIp = true;
             chkRequireIp.Enabled = onlineRole == "host";
             chkRequireIp.Checked = onlineRole == "host" && requireIp;
@@ -1661,7 +1579,6 @@ namespace JDControl
                     Dictionary<string, object> p = o as Dictionary<string, object>;
                     if (p == null) continue;
 
-                    // Movil emparejado con un PC de la sala: sale en la fila de ese PC.
                     if (Val(p, "owner") != "") continue;
 
                     bool c = AsBool(p, "connected");
@@ -1692,7 +1609,6 @@ namespace JDControl
                 }
             }
 
-            // PCs conectados a la sala online (el anfitrión no se duplica)
             if (on != null && on.ContainsKey("members"))
             {
                 foreach (object o in AsList(on["members"]))
@@ -1724,8 +1640,6 @@ namespace JDControl
                 }
             }
 
-            // Mandos, Kinect y camara que ve este PC (solo lectura, los detecta
-            // el servidor). Un mando normal solo sirve para menus: sale atenuado.
             if (st.ContainsKey("devices"))
             {
                 Dictionary<string, object> dv = st["devices"] as Dictionary<string, object>;
@@ -1747,12 +1661,11 @@ namespace JDControl
                         r.State = 1;
                         r.StateText = r.Dance ? L.T("devDance") : L.T("devMenusOnly");
 
-                        // Segunda linea: el modelo real que da Windows.
                         string model = Val(d, "name").Trim();
                         r.Song = model.Length > 0 ? model : null;
 
                         rows.Add(r);
-                        if (r.Dance) connected++; // el mando normal no puntua
+                        if (r.Dance) connected++;
                     }
                 }
             }
@@ -1793,7 +1706,6 @@ namespace JDControl
             }
         }
 
-        /** Nombre corto del tipo de dispositivo (el modelo va en la 2a linea). */
         string DeviceLabel(string kind)
         {
             switch (kind)
@@ -1865,7 +1777,6 @@ namespace JDControl
             }
         }
 
-        /** Linea inferior: "creando sala..." / "sala creada: online activo". */
         void SetTunnelStatus(bool usingTunnel, string code)
         {
             if (usingTunnel)
@@ -1890,7 +1801,6 @@ namespace JDControl
             SetTunnelLine(text, "", Color.FromArgb(110, 110, 120));
         }
 
-        /** Centra la frase y, si hay segunda parte, la pinta en verde detras. */
         void SetTunnelLine(string left, string green, Color leftColor)
         {
             lblTunnel.Text = left;
@@ -1937,9 +1847,6 @@ namespace JDControl
             catch { }
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Ajustes (idioma y actualizaciones)                           */
-        /* ------------------------------------------------------------ */
         void ShowSettingsDialog()
         {
             Form dlg = new Form();
@@ -1996,8 +1903,6 @@ namespace JDControl
             lLang.ForeColor = Color.FromArgb(126, 126, 138);
             lLang.SetBounds(24, 86, 332, 14);
 
-            // Desplegable propio: el ComboBox nativo pinta la flecha en blanco
-            // y rompe el tema oscuro.
             Button cb = new Button();
             cb.Text = LangName(Settings.Lang);
             cb.TextAlign = ContentAlignment.MiddleLeft;
@@ -2130,7 +2035,6 @@ namespace JDControl
                     return;
                 }
 
-                // El resultado llega desde otro hilo: se pinta en el hilo de UI.
                 Action<string> sink = delegate (string msg)
                 {
                     try
@@ -2167,7 +2071,6 @@ namespace JDControl
             return "English";
         }
 
-        /** Reetiqueta el panel sin reiniciar al cambiar de idioma. */
         void ApplyLanguage()
         {
             lblCodeCaption.Text = L.T("code");
@@ -2193,9 +2096,6 @@ namespace JDControl
             pnlPlayers.Invalidate();
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Actualizaciones (releases del repo publico)                  */
-        /* ------------------------------------------------------------ */
         void CheckUpdates()
         {
             string url = Settings.UpdateUrl.Length > 0 ? Settings.UpdateUrl : Settings.DEFAULT_UPDATE_URL;
@@ -2282,13 +2182,9 @@ namespace JDControl
             return parts;
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Bandeja                                                      */
-        /* ------------------------------------------------------------ */
         void HideToTray()
         {
             Hide();
-            // Sin aviso emergente: molesta cada vez que se cierra el panel.
         }
 
         void RestoreFromTray()
@@ -2311,8 +2207,6 @@ namespace JDControl
         {
             running = false;
 
-            // Cierra sala y tunel antes de apagar el servidor (si no, cloudflared
-            // puede quedar vivo apuntando a este PC).
             try
             {
                 using (WebClient wc = new WebClient())
@@ -2337,7 +2231,6 @@ namespace JDControl
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            // GitHub solo habla TLS 1.2+; .NET 4.0 usa SSL3/TLS1 por defecto.
             try { ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; } catch { }
 
             Settings.Load();
@@ -2347,8 +2240,6 @@ namespace JDControl
         }
     }
 
-    /* Iconos de Lucide (https://lucide.dev, licencia ISC), copiados tal cual de
-       lucide-static y dibujados con GDI+: viewBox 24x24, trazo 2, puntas redondas. */
     static class Lucide
     {
         public const string Monitor =
@@ -2364,7 +2255,6 @@ namespace JDControl
             "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\" />" +
             "<path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\" />";
 
-        /* Mando, sensor Kinect y camara: mismo trazo 24x24 que el resto. */
         public const string Gamepad =
             "<rect width=\"18\" height=\"12\" x=\"3\" y=\"7\" rx=\"4\" />" +
             "<line x1=\"8\" x2=\"8\" y1=\"10\" y2=\"14\" />" +
@@ -2390,7 +2280,6 @@ namespace JDControl
 
         public const string Plus = "<path d=\"M5 12h14\" /><path d=\"M12 5v14\" />";
 
-        /* lucide "sliders-horizontal": el icono de ajustes, solo lineas. */
         public const string ChevronDown = "<path d=\"m6 9 6 6 6-6\" />";
 
         public const string Sliders =
@@ -2467,7 +2356,6 @@ namespace JDControl
             gp.CloseFigure();
         }
 
-        /* Solo los comandos que usan estos iconos: M L H V C Z (y sus relativos). */
         static void AddPath(System.Drawing.Drawing2D.GraphicsPath gp, string d)
         {
             List<string> t = new List<string>();
@@ -2488,7 +2376,7 @@ namespace JDControl
                         cur = new PointF(ox + N(t[i]), oy + N(t[i + 1])); i += 2;
                         start = cur;
                         gp.StartFigure();
-                        cmd = rel ? 'l' : 'L'; // pares extra tras M son lineas
+                        cmd = rel ? 'l' : 'L';
                         break;
                     case 'L':
                         { PointF p = new PointF(ox + N(t[i]), oy + N(t[i + 1])); i += 2; gp.AddLine(cur, p); cur = p; }
@@ -2512,7 +2400,7 @@ namespace JDControl
                     case 'Z':
                         gp.CloseFigure();
                         cur = start;
-                        if (i < t.Count && !char.IsLetter(t[i][0])) return; // numeros sueltos tras Z
+                        if (i < t.Count && !char.IsLetter(t[i][0])) return;
                         break;
                     default:
                         return;
@@ -2521,7 +2409,6 @@ namespace JDControl
         }
     }
 
-    /* Panel con doble buffer: la tabla de jugadores se repinta entera cada segundo. */
     class BufferedPanel : Panel
     {
         public BufferedPanel()
@@ -2531,7 +2418,6 @@ namespace JDControl
         }
     }
 
-    /* Colores del menu del icono de la bandeja, a juego con el panel oscuro. */
     class DarkMenuColors : ProfessionalColorTable
     {
         static readonly Color Bg = Color.FromArgb(10, 10, 12);

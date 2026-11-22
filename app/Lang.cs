@@ -6,7 +6,6 @@ using System.Web.Script.Serialization;
 
 namespace JDControl
 {
-    /** Idiomas del panel: ingles, espanol y portugues (Brasil). */
     static class L
     {
         public const string EN = "en";
@@ -15,7 +14,6 @@ namespace JDControl
 
         public static string Code = EN;
 
-        /* Cada clave: [ingles, espanol, portugues] */
         static readonly Dictionary<string, string[]> Map = new Dictionary<string, string[]>
         {
             { "subLocal",       new[] { "LOCAL ROOM", "SALA LOCAL", "SALA LOCAL" } },
@@ -173,7 +171,6 @@ namespace JDControl
         }
     }
 
-    /** settings.json junto al exe: idioma elegido y aviso de actualizaciones. */
     static class Settings
     {
         public static string Lang = "";
@@ -189,7 +186,6 @@ namespace JDControl
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
         }
 
-        /** Idioma del sistema, con ingles como red de seguridad. */
         public static string Detect()
         {
             try

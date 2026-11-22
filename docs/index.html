@@ -15,15 +15,12 @@
 <link rel="icon" href="./icon-192.png" sizes="192x192" type="image/png">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
-  /* RBNo2.1 Black: la familia que usa Just Dance (version DEMO, misma forma).
-     Solo la variante recta: el corte italico no se usa. */
   @font-face {
     font-family: 'RBNo2.1';
     src: url('./fonts/RBNo2.1-Black.otf') format('opentype');
     font-weight: 400; font-style: normal; font-display: swap;
   }
   :root { --jd-font: 'RBNo2.1', 'Segoe UI', system-ui, sans-serif; }
-  /* La DEMO solo trae glifos ASCII: los nombres con acentos van en Segoe */
   .jd-fallback {
     font-family: 'Segoe UI', system-ui, sans-serif !important;
     font-weight: 700 !important; letter-spacing: .2px !important;
@@ -35,7 +32,6 @@
     background: #08080a;
     color: #f0f0f4; font-family: 'Segoe UI', system-ui, sans-serif;
     touch-action: none; user-select: none;
-    /* Suavizado ligero: sin engordar las letras ni emborronar el trazo. */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: geometricPrecision;
@@ -77,12 +73,10 @@
   .note { margin-top: 16px; max-width: 300px; font-size: 12px; line-height: 1.6; color: #6c6c78; text-align: center; }
   .err { margin-top: 12px; min-height: 18px; font-size: 13px; color: #d97b7b; text-align: center; }
 
-  /* --- Controlador --- */
   #pad { width: 100%; height: 100%; display: flex; flex-direction: column; padding: 14px 18px 22px; }
 
   .topbar { width: 100%; display: flex; align-items: center; gap: 12px; }
   .who { flex: 1; text-align: center; line-height: 1.15; min-width: 0; }
-  /* El avatar no desplaza el nombre: columna propia y hueco espejo al otro lado */
   .who-row {
     display: grid; grid-template-columns: 24px minmax(0, 1fr) 24px;
     align-items: center; column-gap: 4px;
@@ -130,7 +124,6 @@
   }
   .state-big.on { color: #ededf2; }
 
-  /* D-pad limpio: sin caja ni borde, solo los simbolos */
   .grid {
     display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
     width: min(76vw, 300px); height: min(76vw, 300px);
@@ -151,7 +144,6 @@
   body.dancing .dance-only { display: flex; }
   body.dancing .menu-only { display: none !important; }
 
-  /* Durante el baile: coach pequeño y barra de movimiento a la izquierda */
   .dance-head {
     width: 100%; display: flex; align-items: center;
     gap: 12px; padding: 0 2px;
@@ -168,7 +160,6 @@
   #moveFill { height: 100%; width: 0%; background: #d9d9df; transition: width .08s linear; }
   #danceAvatar { width: 64px; height: 64px; object-fit: contain; flex: 0 0 64px; }
 
-  /* --- Pantallas del juego --- */
   .flat {
     width: 100%; max-width: 380px;
     display: flex; flex-direction: column; align-items: center; gap: 10px;
@@ -183,7 +174,6 @@
     letter-spacing: .8px; text-align: center; color: #eaeaef;
   }
 
-  /* --- Selección de coach: personajes de pie, sin marco --- */
   #scr-lobby { padding: 16px 16px 20px; gap: 10px; }
   .lobby-head { width: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
   .lobby-count {
@@ -191,7 +181,6 @@
     font-size: 9px; letter-spacing: 1.6px; text-transform: uppercase; color: #5f5f6b;
   }
 
-  /* Pista de personajes: sin cajas, figuras de pie sobre el fondo */
   .lobby-body {
     flex: 1; min-height: 0; width: 100%;
     display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
@@ -202,9 +191,6 @@
     display: flex; align-items: flex-end; justify-content: center;
   }
 
-  /* Cada personaje es un boton invisible del tamaño exacto de su figura.
-     El juego manda PNGs con margenes transparentes: mobile.js mide el
-     recorte real y escala la imagen para que la figura ocupe toda la altura. */
   .coach {
     --dy: 0px;
     --ov: 0px;
@@ -236,7 +222,6 @@
     pointer-events: none; -webkit-user-drag: none;
   }
 
-  /* Sombra plana en el suelo (sin degradados) */
   .coach::after {
     content: ''; position: absolute; left: 20%; right: 20%; bottom: -5px; height: 8px;
     border-radius: 50%; background: rgba(0, 0, 0, .5);
@@ -246,7 +231,6 @@
 
   .coach-stage .empty { font-size: 13px; color: #6a6a76; text-align: center; align-self: center; }
 
-  /* Placa con el nombre del jugador (como en el juego) */
   .nameplate {
     display: flex; align-items: center; gap: 8px; max-width: 92%; margin-top: 18px;
     padding: 5px 18px 5px 6px;
@@ -281,7 +265,6 @@
   #scoreStars { font-size: 28px; letter-spacing: 4px; }
   #scoreRank { font-family: var(--jd-font); font-size: 20px; font-weight: 400; letter-spacing: 2px; }
 
-  /* Visibilidad por modo (al final para ganar a las reglas de cada bloque) */
   body:not(.dancing) .dance-only { display: none !important; }
   body.dancing .dance-only { display: flex; }
   body.dancing .menu-only { display: none !important; }
@@ -289,7 +272,6 @@
 </head>
 <body>
 
-  <!-- 1. Código (sin tarjeta, sobre el fondo liso) -->
   <div id="scr-code" class="screen active">
     <div class="brand">JD <span>CONTROL</span></div>
     <input id="codeInput" class="code" inputmode="numeric" maxlength="5" placeholder="00000" autocomplete="off">
@@ -298,7 +280,6 @@
     <div class="note" data-t="codeNote">Type the 5-digit code shown on the PC.</div>
   </div>
 
-  <!-- 2. Permisos -->
   <div id="scr-ready" class="screen">
     <div class="brand" data-t="brandReady">READY</div>
     <div class="note" data-t="readyNote">To score I need the phone accelerometer. Tap the
@@ -307,7 +288,6 @@
     <div id="readyErr" class="err"></div>
   </div>
 
-  <!-- 3. Menú / baile -->
   <div id="scr-pad" class="screen">
     <div id="pad">
       <div class="topbar">
@@ -367,7 +347,6 @@
     </div>
   </div>
 
-  <!-- 4. Selección de coach -->
   <div id="scr-lobby" class="screen">
     <div class="lobby-head">
       <div class="game-title" data-t="pickCoach">PICK YOUR COACH</div>
@@ -386,7 +365,6 @@
     </div>
   </div>
 
-  <!-- 5. Puntaje -->
   <div id="scr-score" class="screen">
     <div class="flat">
       <div id="scoreRank">JUST DANCER</div>
@@ -396,7 +374,6 @@
     <button id="btnContinue" class="btn-main" data-t="pcontinue">CONTINUE</button>
   </div>
 
-  <!-- 6. Popup del juego (tutorial, avisos, etc.) -->
   <div id="scr-popup" class="screen">
     <div class="flat" id="popupCard">
       <img id="popupImg" alt="" style="max-width:100%; max-height:220px; object-fit:contain;">
@@ -407,8 +384,6 @@
 
   <script src="mobile.js"></script>
   <script>
-    // PWA: cachea la interfaz para abrirla sin conexión. Las llamadas al
-    // backend y al túnel no se tocan (van a otro origen).
     if ('serviceWorker' in navigator) {
       var hadController = !!navigator.serviceWorker.controller;
       var refreshed = false;

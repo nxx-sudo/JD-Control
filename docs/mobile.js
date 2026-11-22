@@ -40,21 +40,15 @@ let playerName = '';
 let roomCode = '';
 let connecting = false;
 let retrying = false;
-let hostUrl = '';        // URL actual del túnel del PC (https://algo.trycloudflare.com)
+let hostUrl = '';
 let lookupTries = 0;
 let motionOn = false;
 let motionAsk = null;
 
-/*
- * PWA: no habla con el origen de la página (GitHub Pages, estático).
- * Pide al backend el túnel actual del PC para el código de 5 dígitos y
- * luego conecta el WebSocket y las imágenes directamente contra el túnel.
- */
 const params = new URLSearchParams(location.search);
 let storedBackend = '';
-try { storedBackend = localStorage.getItem('jdBackend') || ''; } catch { /* modo privado */ }
+try { storedBackend = localStorage.getItem('jdBackend') || ''; } catch {}
 
-/* Un backend guardado en pruebas (127.0.0.1, IP local) no sirve en el móvil. */
 function usableBackend(value) {
   if (!value) return false;
   try {
@@ -73,18 +67,16 @@ const BACKEND = String(
   params.get('backend') || storedBackend || 'https://jd-remote.onrender.com'
 ).replace(/\/+$/, '');
 if (params.get('backend')) {
-  try { localStorage.setItem('jdBackend', BACKEND); } catch { /* modo privado */ }
+  try { localStorage.setItem('jdBackend', BACKEND); } catch {}
 }
 
-/* Identidad estable del móvil: al reconectar se reutiliza su jugador en vez
-   de crear otro (el servidor guarda el GamePhone unos segundos). */
 let devId = '';
-try { devId = localStorage.getItem('jdDev') || ''; } catch { /* modo privado */ }
+try { devId = localStorage.getItem('jdDev') || ''; } catch {}
 if (!devId) {
   devId = (self.crypto && crypto.randomUUID)
     ? crypto.randomUUID()
     : 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-  try { localStorage.setItem('jdDev', devId); } catch { /* modo privado */ }
+  try { localStorage.setItem('jdDev', devId); } catch {}
 }
 
 let lastSeen = 0;
@@ -94,7 +86,6 @@ const hostParam = String(params.get('host') || '').replace(/\/+$/, '');
 if (/^https?:\/\//i.test(hostParam)) hostUrl = hostParam;
 if (params.get('code')) codeInput.value = String(params.get('code')).replace(/\D/g, '').slice(0, 5);
 
-/* La PWA siempre es remota: el PC está detrás de un túnel. */
 const remoteMode = true;
 
 const I18N = {
@@ -299,13 +290,10 @@ const gameImg = (p) => {
   if (!p) return '';
   if (/^https?:/i.test(p)) return p;
   const rel = p.startsWith('/') ? p : '/' + p;
-  // Las imágenes del juego viven en el PC: se piden a su túnel actual.
   if (hostUrl) return hostUrl + '/game' + rel;
   return '/game' + rel;
 };
 
-/** Nombre real del perfil que esta usando el juego (no "usuario 1").
-    Si trae acentos, se usa Segoe: la DEMO de RBNo los dibuja como cajas. */
 function jdName(el, text) {
   el.textContent = text;
   el.classList.toggle('jd-fallback', /[^\x20-\x7E]/.test(text));
@@ -318,7 +306,6 @@ function setName(n) {
   jdName(connName, v);
 }
 
-/** Avatar del perfil, servido por el servidor del PC (a través del túnel). */
 function setAvatar(url) {
   if (!url) return;
   if (url.startsWith('/') && hostUrl) url = hostUrl + url;
@@ -327,7 +314,6 @@ function setAvatar(url) {
   playerAvatar.style.display = 'block';
 }
 
-/** Linea discreta con el estado de la sala online del exe. */
 function setOnline(on) {
   $('btnDance').textContent = on && on.requiresReady
     ? t(on.localReady ? 'danceCancelReady' : 'danceReady')
@@ -391,21 +377,16 @@ function goHome() {
   show('code');
 }
 
-/* ------------------------------------------------------------------ */
-/*  Conexión                                                           */
-/* ------------------------------------------------------------------ */
-/** Pide permiso de sensores dentro del gesto del usuario (obligatorio en iOS). */
 function askMotion() {
   try {
     if (typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function') {
       return DeviceMotionEvent.requestPermission().catch(() => 'denied');
     }
-  } catch { /* sin permiso */ }
+  } catch {}
   return Promise.resolve('granted');
 }
 
-/** Backend: código de sala -> URL actual del túnel del PC. */
 async function lookupRoom(code) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 25000);
@@ -440,8 +421,6 @@ async function connect(earlyMotion) {
   roomCode = code;
   motionAsk = earlyMotion || askMotion();
 
-  // El panel puede tardar en publicar el túnel y Render en despertar: se
-  // reintenta con espera creciente en vez de rendirse a la primera.
   const delays = [0, 2500, 5000, 8000, 12000];
   let info = null;
   let last = '';
@@ -473,7 +452,6 @@ async function connect(earlyMotion) {
   startRelay(0);
 }
 
-/** WebSocket directo contra el túnel actual del PC. */
 function startRelay(attempt) {
   if (!hostUrl) return;
   const base = hostUrl.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:');
@@ -505,15 +483,13 @@ function attachSocket(socket, attempt) {
   if (socket.readyState === 1) joined();
   else socket.addEventListener('open', joined);
 
-  // Latido: si el servidor no contesta en 40 s, el socket está muerto aunque
-  // el móvil aún lo crea abierto (pantalla bloqueada, cambio de red).
   const pingTimer = setInterval(() => {
     if (socket.readyState !== 1) return;
     if (Date.now() - lastSeen > 40000) {
-      try { socket.close(); } catch { /* noop */ }
+      try { socket.close(); } catch {}
       return;
     }
-    try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+    try { socket.send(JSON.stringify({ type: 'ping' })); } catch {}
   }, 12000);
 
   socket.addEventListener('close', () => {
@@ -524,8 +500,6 @@ function attachSocket(socket, attempt) {
     const inPad = screens.pad.classList.contains('active') ||
       screens.lobby.classList.contains('active');
 
-    // El túnel puede tardar o Cloudflare puede haber cambiado la URL:
-    // se vuelve a preguntar al backend y se reintenta.
     if (!opened && !socket.jdNoRetry && attempt < 2) {
       retrying = true;
       codeErr.textContent = t('errRetry', { n: attempt + 2 });
@@ -535,14 +509,12 @@ function attachSocket(socket, attempt) {
         try {
           const info = await lookupRoom(roomCode);
           if (info && !info.error) hostUrl = info.tunnel;
-        } catch { /* se reintenta igual */ }
+        } catch {}
         startRelay(attempt + 1);
       }, 1800);
       return;
     }
 
-    // Ya estaba dentro: no se echa al jugador a la pantalla del código por
-    // un corte breve; se reconecta y el servidor le devuelve su jugador.
     if (opened && inPad && reconnectTries < 3) {
       reconnectTries += 1;
       codeErr.textContent = t('errReconnecting', { n: reconnectTries });
@@ -551,7 +523,7 @@ function attachSocket(socket, attempt) {
         try {
           const info = await lookupRoom(roomCode);
           if (info && !info.error) hostUrl = info.tunnel;
-        } catch { /* se usa el túnel anterior */ }
+        } catch {}
         startRelay(0);
       }, 1200 + reconnectTries * 1200);
       return;
@@ -559,7 +531,7 @@ function attachSocket(socket, attempt) {
 
     if (inPad || screens.ready.classList.contains('active')) {
       setTimeout(() => {
-        if (ws) return; // ya hay otra conexion en marcha
+        if (ws) return;
         show('code');
         codeErr.textContent = t('errLost');
       }, 800);
@@ -611,9 +583,6 @@ function attachSocket(socket, attempt) {
   });
 }
 
-/* ------------------------------------------------------------------ */
-/*  Estados que manda el juego                                         */
-/* ------------------------------------------------------------------ */
 function handleGame(m) {
   if (!m) return;
 
@@ -639,8 +608,6 @@ function handleGame(m) {
   const sd = m.setupData;
   if (!sd) return;
 
-  // Popup del juego (tutorial, avisos). Solo si hay UNA opción clara:
-  // los avisos de "si/no" no funcionan bien desde el movil, asi que se ignoran.
   if (m.isPopup === 1 && sd.mainCarousel) {
     const items = visibleItems(sd.mainCarousel);
     if (items.length === 1) {
@@ -649,7 +616,6 @@ function handleGame(m) {
     }
   }
 
-  // Selección de coach
   if (sd.lobbySetup) {
     setDancing(false);
     const prof = sd.lobbySetup.changeProfile;
@@ -665,7 +631,6 @@ function handleGame(m) {
     return;
   }
 
-  // Comienza la canción
   if (sd.gameplaySetup) {
     const img = sd.gameplaySetup.coachImage || sd.gameplaySetup.image;
     if (img) danceAvatar.src = gameImg(img);
@@ -675,12 +640,10 @@ function handleGame(m) {
     return;
   }
 
-  // Resultado
   if (sd.recapSetup) {
     setDancing(false);
     const recap = sd.recapSetup.recapData || {};
 
-    // El boton "Continuar" del recap trae su propio comando literal
     pendingContinue = null;
     const cont = visibleItems(sd.mainCarousel).find((i) => /continuar|continue|ok/i.test(i.title || ''));
     if (cont) pendingContinue = actionOf(cont);
@@ -690,7 +653,6 @@ function handleGame(m) {
     return;
   }
 
-  // Menú / carrusel / pausa
   if (sd.mainCarousel) {
     setDancing(false);
     stateBig.textContent = t('menu');
@@ -706,9 +668,6 @@ function handleGame(m) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Popups del juego (una sola opcion)                                 */
-/* ------------------------------------------------------------------ */
 function visibleItems(carousel) {
   const rows = (carousel && carousel.rows) || [];
   return rows
@@ -745,7 +704,6 @@ function renderPopup(item) {
   title.textContent = '';
   title.style.display = 'none';
 
-  // La tarjeta solo aparece si el juego manda una ilustracion real
   const card = pic.parentElement;
   card.style.display = img ? 'flex' : 'none';
 
@@ -771,10 +729,6 @@ function setDancing(on) {
   if (on) stateBig.textContent = t('danceDo');
 }
 
-/* ------------------------------------------------------------------ */
-/*  Coaches                                                            */
-/* ------------------------------------------------------------------ */
-/** Placa con el nombre del jugador, debajo de los personajes. */
 function setLobbyProfile(name, image) {
   const n = String(name || '').trim();
   const label = n && n.indexOf('[icon:') !== 0 ? n : '';
@@ -800,12 +754,6 @@ function selectCoach(i) {
   cmd('coach', { index: i });
 }
 
-/* ------------------------------------------------------------------ */
-/*  Figuras de los coaches                                             */
-/* ------------------------------------------------------------------ */
-/* Los PNG del juego traen margenes transparentes. Se mide el recorte
-   real (caja alfa) para que la figura ocupe toda la altura disponible
-   y no quede pequeña dentro de un rectangulo. */
 function measureFigure(img) {
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
@@ -855,7 +803,6 @@ function measureFigure(img) {
   }
 }
 
-/** Coloca la imagen dentro del boton para que la caja alfa llene width x height. */
 function placeFigure(img, box, width, height) {
   const b = box || { x0: 0, y0: 0, x1: img.naturalWidth, y1: img.naturalHeight, nw: img.naturalWidth, nh: img.naturalHeight };
   const bw = Math.max(1, b.x1 - b.x0);
@@ -868,7 +815,6 @@ function placeFigure(img, box, width, height) {
   img.style.bottom = Math.round(-(b.nh - b.y1) * s) + 'px';
 }
 
-/** Reparte las figuras: altura comun, solapamiento justo y sin salirse del ancho. */
 function layoutCoaches() {
   const stage = coachStage;
   const btns = [...stage.querySelectorAll('.coach')];
@@ -889,7 +835,6 @@ function layoutCoaches() {
   const n = btns.length;
   const scales = btns.map((b) => (b.classList.contains('sel') ? 1.12 : 0.76));
 
-  // Altura base: el elegido (x1.12) cabe entero en la pista
   let h = Math.min(sh * 0.88, 460);
   let ov = 0;
 
@@ -923,7 +868,6 @@ function renderCoaches(list) {
   const sig = coaches.map((c) => gameImg(c.image || c.imageUrl || c.coachImage)).join('|');
   $('lobbyCount').textContent = coaches.length ? `${coaches.length} coach${coaches.length === 1 ? '' : 's'}` : '';
 
-  // Mismo reparto de coaches: solo se refresca la seleccion (sin reiniciar la animacion)
   if (coaches.length && sig === coachSig) {
     [...coachStage.children].forEach((el, j) => {
       if (el.classList.contains('coach')) el.classList.toggle('sel', j === selectedCoach);
@@ -958,7 +902,6 @@ function renderCoaches(list) {
     const img = gameImg(c.image || c.imageUrl || c.coachImage);
     if (img) {
       const el = document.createElement('img');
-      // Cross-origin (Pages -> túnel): CORS permite medir el recorte real.
       if (hostUrl && img.startsWith(hostUrl)) el.crossOrigin = 'anonymous';
       el.src = img;
       el.alt = '';
@@ -982,9 +925,6 @@ function renderCoaches(list) {
   requestAnimationFrame(layoutCoaches);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Puntaje                                                            */
-/* ------------------------------------------------------------------ */
 function renderScore(score, realStars) {
   let stars = typeof realStars === 'number' ? realStars : 0;
   const color = '#e9e9ef';
@@ -1015,15 +955,11 @@ function renderScore(score, realStars) {
   el.style.color = color;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Acelerómetro                                                       */
-/* ------------------------------------------------------------------ */
 function onMotion(e) {
   if (!dancing) return;
   const a = e.accelerationIncludingGravity;
   if (!a || a.x == null) return;
 
-  // Medidor de movimiento real (dato del propio telefono, no del juego)
   const mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
   const delta = Math.min(Math.abs(mag - lastMag), 18);
   lastMag = mag;
@@ -1049,14 +985,9 @@ function cmd(name, payload) {
   send({ type: 'cmd', name, payload });
 }
 
-/* ------------------------------------------------------------------ */
-/*  UI                                                                 */
-/* ------------------------------------------------------------------ */
 $('btnConnect').addEventListener('click', () => connect());
 codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
 
-// Al escribir el quinto dígito se empareja solo. askMotion() se llama aquí
-// (dentro del gesto) para que iOS muestre el permiso de sensores.
 let autoCode = '';
 codeInput.addEventListener('input', () => {
   const v = codeInput.value.replace(/\D/g, '').slice(0, 5);
@@ -1068,7 +999,6 @@ codeInput.addEventListener('input', () => {
 });
 codeInput.addEventListener('keydown', () => { autoCode = ''; }, true);
 
-/** Activa el acelerómetro, pantalla encendida y pantalla completa. */
 async function startSensors(permission) {
   if (motionOn) {
     show('pad');
@@ -1089,8 +1019,6 @@ async function startSensors(permission) {
   window.addEventListener('devicemotion', onMotion);
   motionOn = true;
 
-  // No se espera: en algunos navegadores requestFullscreen/wakeLock pueden
-  // quedarse pendientes y bloquearían la entrada al panel.
   try { document.documentElement.requestFullscreen().catch(() => {}); } catch {}
   try {
     navigator.wakeLock.request('screen')
@@ -1122,8 +1050,6 @@ document.addEventListener('visibilitychange', async () => {
   if (!wakeLock) {
     try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
   }
-  // Al volver de segundo plano el socket puede haber muerto: se reconecta
-  // sin pasar por la pantalla del código.
   if (roomCode && hostUrl && !ws && !connecting && !retrying &&
       (screens.pad.classList.contains('active') ||
        screens.lobby.classList.contains('active') ||
@@ -1133,8 +1059,6 @@ document.addEventListener('visibilitychange', async () => {
   }
 });
 
-// Al cerrar o cambiar de app se avisa al PC para que quite al jugador ya,
-// sin esperar al latido (el móvil puede no cerrar el socket por su cuenta).
 window.addEventListener('pagehide', () => {
   const s = ws;
   if (!s) return;

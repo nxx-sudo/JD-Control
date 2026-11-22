@@ -1,19 +1,5 @@
 'use strict';
 
-/**
- * Un "GamePhone" emula a la app oficial de Just Dance contra Legacy.exe.
- *
- * Protocolo (v1):
- *   ws://127.0.0.1:8080/smartphone   subprotocolo v1.phonescoring.jd.ubisoft.com
- *   -> JD_PhoneDataCmdHandshakeHello { accelAcquisitionFreqHz, accelAcquisitionLatency, accelMaxRange }
- *   <- JD_PhoneDataCmdHandshakeContinue { phoneID }
- *   -> JD_PhoneDataCmdSync { phoneID }
- *   <- JD_PhoneDataCmdSyncEnd { phoneID }
- *   -> JD_PhoneDataCmdSyncEnd { phoneID }
- *   <- JD_EnableAccelValuesSending_ConsoleCommandData   (empieza el baile)
- *   -> JD_PhoneScoringData { accelData: [[x,y,z],...], timeStamp }
- */
-
 const EventEmitter = require('events');
 
 const GAME_URL = process.env.JD_GAME_URL || 'ws://127.0.0.1:8080/smartphone';
@@ -21,7 +7,6 @@ const SUBPROTOCOL = 'v1.phonescoring.jd.ubisoft.com';
 const FLUSH_MS = 15;
 const MAX_PER_MESSAGE = 10;
 
-// Comandos de entrada (identificadores del protocolo)
 const INPUT = {
   up: 3690595578,
   right: 1099935642,
@@ -30,7 +15,6 @@ const INPUT = {
   ok: 1084313942,
 };
 
-/** La imagen del lobby identifica el mapa, no la posicion del carrusel. */
 function songImageKey(image, type) {
   const file = String(image || '').split('?')[0].split('/').pop().toLowerCase();
   const suffix = type === 'cover'
@@ -94,7 +78,7 @@ class GamePhone extends EventEmitter {
 
   _closeSocket() {
     if (this.ws) {
-      try { this.ws.close(); } catch { /* noop */ }
+      try { this.ws.close(); } catch {}
       this.ws = null;
     }
     this.connected = false;
@@ -197,7 +181,6 @@ class GamePhone extends EventEmitter {
         this._emitState();
         break;
 
-      // --- Permisos de entrada ---
       case 'InputSetup_ConsoleCommandData':
       case 'EnableCarousel_ConsoleCommandData':
       case 'ShortcutSetup_ConsoleCommandData':
@@ -217,7 +200,6 @@ class GamePhone extends EventEmitter {
 
         const sd = msg.setupData || {};
 
-        // El nombre real del perfil viene en el lobby
         if (sd.lobbySetup && sd.lobbySetup.changeProfile) {
           const nm = String(sd.lobbySetup.changeProfile.title || '').trim();
           if (nm && nm.indexOf('[icon:') !== 0) this.name = nm;
@@ -270,11 +252,9 @@ class GamePhone extends EventEmitter {
         break;
     }
 
-    // El movil tambien quiere enterarse de lo que pasa en el juego
     this.emit('game', msg);
   }
 
-  /** Muestra de acelerometro ya normalizada a G y con los ejes del juego. */
   pushAccel(x, y, z) {
     if (!this.sending) return;
     this.buffer.push([x / 9.8, z / 9.8, y / 9.8]);
@@ -292,7 +272,6 @@ class GamePhone extends EventEmitter {
     }
   }
 
-  /** Comando literal que el propio juego pone dentro de un item/shortcut. */
   sendRawAction(command) {
     if (!this.connected || !this.ws || this.ws.readyState !== 1) return false;
 
@@ -312,12 +291,10 @@ class GamePhone extends EventEmitter {
     }
   }
 
-  /** Comandos desde el movil: ok, back, up, down, left, right, pause, coach */
   command(name, payload = {}) {
     if (!this.connected) return false;
 
     if (this.sending) {
-      // Durante el baile solo tiene sentido la pausa
       if (name !== 'pause') return false;
       return this._send('JD_Pause_PhoneCommandData');
     }

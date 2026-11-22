@@ -1,4 +1,3 @@
-/* RBNo2.1 Black (recta): la tipografia tipo Just Dance */
 @font-face {
     font-family: 'RBNo2.1';
     src: url('/fonts/RBNo2.1-Black.otf') format('opentype');
@@ -7,7 +6,6 @@
     font-display: swap;
 }
 
-/* ------- Base ------- */
 * { box-sizing: border-box; }
 
 body {
@@ -28,7 +26,6 @@ body {
 
 .hidden { display: none !important; }
 
-/* ------- Escenario ------- */
 .stage {
     width: 100%;
     max-width: 620px;
@@ -133,7 +130,6 @@ body {
     color: #6f6f7c;
 }
 
-/* ------- Modales (tu diseño original) ------- */
 .modal-overlay {
     display: none;
     position: fixed;

@@ -1,10 +1,5 @@
 'use strict';
 
-/*
- * Service worker de la PWA.
- * Solo cachea la interfaz (mismo origen, GitHub Pages). El backend de
- * emparejamiento y el túnel del PC son otro origen y nunca se interceptan.
- */
 const VERSION = 'jd-control-pwa-v2';
 const SHELL = [
   './',
@@ -43,7 +38,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navegación: red primero (para recibir la última versión), caché si falla.
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req)
@@ -57,7 +51,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Estáticos: red primero (para recibir la última versión), caché si falla.
   event.respondWith(
     fetch(req)
       .then((res) => {

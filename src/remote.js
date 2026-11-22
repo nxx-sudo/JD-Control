@@ -1,21 +1,5 @@
 'use strict';
 
-/**
- * Enlace saliente PC -> backend publico.
- *
- * Este PC abre la conexion hacia el backend (Render); asi el backend puede
- * llegar hasta el juego aunque el PC este detras de NAT y sin IP fija.
- * El movil habla con el backend y este reenvia los mensajes por aqui.
- *
- * Mensajes (JSON, todos con "t"):
- *   PC -> backend : hello, idle, to-phone, to-online, close-online, avatar, fetch, ping
- *   backend -> PC : welcome, phone-open, phone-msg, phone-close,
- *                   online-open, online-msg, online-close, fetch, pong
- *
- * "online-*" son otros PCs que entran a la sala online de este PC a traves
- * del backend (cuando no llegan por IP ni por tunel).
- */
-
 const WebSocket = require('ws');
 
 const RETRY_MIN = 1500;
@@ -36,8 +20,8 @@ function createRemoteLink(opts) {
   const wsUrl = backend + '/ws/pc' + (token ? '?key=' + encodeURIComponent(token) : '');
   const httpBase = backend.replace(/^ws/, 'http');
 
-  const phones = new Map(); // sid -> { msg, close }
-  const members = new Map(); // sid -> { msg, close } (PCs de la sala online)
+  const phones = new Map();
+  const members = new Map();
   let ws = null;
   let alive = false;
   let stopped = false;
@@ -66,7 +50,6 @@ function createRemoteLink(opts) {
     onReady();
   }
 
-  /** Canal que ve el servidor local para una sesion de movil remota. */
   function openPhone(sid, ip) {
     const handlers = { msg: null, close: null };
     phones.set(sid, handlers);
@@ -79,7 +62,6 @@ function createRemoteLink(opts) {
     });
   }
 
-  /** Otro PC que entra a la sala online de este PC por el backend. */
   function openMember(sid, ip) {
     if (!onOnline) {
       send({ t: 'close-online', sid });
@@ -95,7 +77,7 @@ function createRemoteLink(opts) {
       close: () => {
         if (!members.delete(sid)) return;
         send({ t: 'close-online', sid });
-        try { if (handlers.close) handlers.close(); } catch { /* noop */ }
+        try { if (handlers.close) handlers.close(); } catch {}
       },
       onMessage: (fn) => { handlers.msg = fn; },
       onClose: (fn) => { handlers.close = fn; },
@@ -120,7 +102,7 @@ function createRemoteLink(opts) {
     for (const map of [phones, members]) {
       for (const [sid, h] of [...map]) {
         map.delete(sid);
-        try { if (h.close) h.close(); } catch { /* noop */ }
+        try { if (h.close) h.close(); } catch {}
       }
     }
   }
@@ -193,7 +175,7 @@ function createRemoteLink(opts) {
     };
 
     socket.on('close', closed);
-    socket.on('error', () => { try { socket.close(); } catch { /* noop */ } });
+    socket.on('error', () => { try { socket.close(); } catch {} });
   }
 
   connect();
@@ -216,7 +198,7 @@ function createRemoteLink(opts) {
       stopped = true;
       if (timer) clearTimeout(timer);
       if (keepAlive) clearInterval(keepAlive);
-      if (ws) { try { ws.close(); } catch { /* noop */ } }
+      if (ws) { try { ws.close(); } catch {} }
     },
   };
 }

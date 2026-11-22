@@ -1,10 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-/* Version y descripcion del ejecutable.
-   Los antivirus heurísticos puntuan mejor un .exe firmado y con metadatos:
-   un binario sin nombre de producto ni version parece "generado por malware". */
-
 [assembly: AssemblyTitle("JD CONTROL")]
 [assembly: AssemblyDescription("Panel y servidor local para Just Dance Legacy")]
 [assembly: AssemblyProduct("JD CONTROL")]

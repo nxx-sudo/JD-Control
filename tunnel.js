@@ -1,14 +1,5 @@
 'use strict';
 
-/**
- * Tunel publico hacia ESTE servidor (sin Render y sin abrir puertos).
- *
- *   Movil --https--> Cloudflare --http--> este PC :8081
- *
- * Descarga cloudflared la primera vez, levanta un quick tunnel y publica la
- * URL en cache/tunnel.json para que el panel la muestre en el QR.
- */
-
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
@@ -73,7 +64,7 @@ function ensureBinary(done) {
 }
 
 function clearState() {
-  try { fs.unlinkSync(STATE); } catch { /* noop */ }
+  try { fs.unlinkSync(STATE); } catch {}
 }
 
 function start() {
@@ -94,7 +85,7 @@ function start() {
     try {
       fs.mkdirSync(path.dirname(STATE), { recursive: true });
       fs.writeFileSync(STATE, JSON.stringify({ url: m[0], pid: proc.pid, at: Date.now() }, null, 2));
-    } catch { /* noop */ }
+    } catch {}
 
     log('');
     log('  ==========================================');
@@ -123,20 +114,19 @@ function start() {
     process.exit(1);
   });
 
-  process.on('SIGINT', () => { try { proc.kill(); } catch { /* noop */ } });
-  process.on('SIGTERM', () => { try { proc.kill(); } catch { /* noop */ } });
+  process.on('SIGINT', () => { try { proc.kill(); } catch {} });
+  process.on('SIGTERM', () => { try { proc.kill(); } catch {} });
 }
 
-/* Si ya hay un tunel vivo, no se abre otro */
 try {
   const prev = JSON.parse(fs.readFileSync(STATE, 'utf8'));
   if (prev && prev.pid) {
-    process.kill(prev.pid, 0); // lanza si no existe
+    process.kill(prev.pid, 0);
     console.log('  Ya hay un tunel abierto: ' + prev.url + '/m');
     console.log('  Cierra esa ventana para abrir otro.');
     process.exit(0);
   }
-} catch { /* no hay tunel previo */ }
+} catch {}
 
 clearState();
 

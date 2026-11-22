@@ -1,28 +1,13 @@
 'use strict';
 
-/* ------------------------------------------------------------------ */
-/*  Mandos, Kinect y camara                                           */
-/* ------------------------------------------------------------------ */
-/* Node no tiene APIs de dispositivos en Windows, asi que se usa un
-   PowerShell que queda vivo en segundo plano y escribe una linea JSON
-   cada vez que cambia algo. Aqui solo se normaliza a una lista unica
-   que el panel puede pintar con iconos.
-
-   Solo lectura: NO abre el Kinect ni el mando. El juego puede estar
-   usandolos al mismo tiempo sin conflicto.
-
-   kinds:  pc | phone | pad | joycon | wiimote | psmove | ds4 | kinect | camera
-   dance:  true si puede bailar (tiene movimiento y el juego lo acepta)
-*/
-
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 const POLL_MS = 1000;
-const PNP_EVERY = 8;          // el barrido PnP es caro: 1 de cada 8 vueltas
-const EMIT_EVERY = 10;        // latido aunque no cambie nada
+const PNP_EVERY = 8;
+const EMIT_EVERY = 10;
 const RESTART_MS = 5000;
 
 const IS_WIN = process.platform === 'win32';
@@ -43,9 +28,6 @@ let restartTimer = null;
 let stopped = false;
 const listeners = new Set();
 
-/* ------------------------------------------------------------------ */
-/*  Script de Windows                                                 */
-/* ------------------------------------------------------------------ */
 const PS_SCRIPT = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -183,9 +165,6 @@ while ($true) {
 }
 `;
 
-/* ------------------------------------------------------------------ */
-/*  Clasificacion                                                     */
-/* ------------------------------------------------------------------ */
 function asArray(v) {
   if (v === undefined || v === null) return [];
   return Array.isArray(v) ? v : [v];
@@ -204,7 +183,6 @@ function kindFromName(name, cls) {
   return null;
 }
 
-/** true si el juego lo admite como bailarin (necesita movimiento). */
 function canDance(kind) {
   return kind === 'kinect' || kind === 'joycon' || kind === 'wiimote' ||
     kind === 'psmove' || kind === 'ds4' || kind === 'camera' || kind === 'phone';
@@ -233,7 +211,6 @@ function normalize(raw) {
   const list = [];
   const seen = new Set();
 
-  // XInput: el nombre real casi siempre lo da DirectInput o el PnP.
   const directNames = direct.map((d) => String(d.name || '')).filter(Boolean);
   const pnpPad = pnp.filter((d) => {
     const k = kindFromName(d.name, d.class);
@@ -258,8 +235,6 @@ function normalize(raw) {
     });
   });
 
-  // DirectInput que XInput no cubre (mandos viejos, volantes, arcade).
-  // Se descuentan por nombre los que XInput ya listo, para no duplicar.
   const remaining = new Map();
   for (const d of list) remaining.set(d.name, (remaining.get(d.name) || 0) + 1);
 
@@ -284,20 +259,18 @@ function normalize(raw) {
     });
   });
 
-  // PnP: Kinect, camara y controles con movimiento (Joy-Con, Wiimote, PS Move).
   for (const d of pnp) {
     const name = String(d.name || '');
     const kind = kindFromName(name, d.class);
     if (!kind) continue;
 
-    if (kind === 'pad') continue; // los pads reales solo valen por XInput/DirectInput
+    if (kind === 'pad') continue;
     if (kind === 'ds4' && String(d.class).toLowerCase() !== 'hidclass') continue;
 
     const iid = String(d.id || name);
     const id = kind + ':' + iid;
     if (seen.has(id)) continue;
 
-    // Un Kinect crea varios nodos (sensor, audio, motor). Basta con uno.
     const already = list.find((x) => x.kind === kind && kind === 'kinect');
     if (already) continue;
 
@@ -314,22 +287,18 @@ function normalize(raw) {
     });
   }
 
-  // El telefono no se enumera aqui: cada movil conectado ya es un jugador.
   return list;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Proceso de Windows                                                */
-/* ------------------------------------------------------------------ */
 function scriptPath() {
   const dir = path.join(__dirname, '..', 'cache');
-  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* noop */ }
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   const file = path.join(dir, 'devices.ps1');
   try {
     const prev = fs.readFileSync(file, 'utf8');
     if (prev !== PS_SCRIPT) fs.writeFileSync(file, PS_SCRIPT, 'utf8');
   } catch {
-    try { fs.writeFileSync(file, PS_SCRIPT, 'utf8'); } catch { /* noop */ }
+    try { fs.writeFileSync(file, PS_SCRIPT, 'utf8'); } catch {}
   }
   return file;
 }
@@ -337,7 +306,7 @@ function scriptPath() {
 function emit() {
   const snapshot = snapshotState();
   for (const fn of listeners) {
-    try { fn(snapshot); } catch { /* el que escucha se cae solo */ }
+    try { fn(snapshot); } catch {}
   }
 }
 
@@ -449,14 +418,11 @@ function stop() {
   clearTimeout(restartTimer);
   restartTimer = null;
   if (child) {
-    try { child.kill(); } catch { /* noop */ }
+    try { child.kill(); } catch {}
     child = null;
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  API                                                               */
-/* ------------------------------------------------------------------ */
 function snapshotState() {
   return {
     ok: state.ok,
@@ -466,12 +432,10 @@ function snapshotState() {
   };
 }
 
-/** Lista normalizada (copia) para /api/devices y el panel. */
 function list() {
   return state.devices.map((d) => ({ ...d }));
 }
 
-/** Resumen corto para la sala: que hay disponible para bailar. */
 function summary() {
   const devices = list();
   return {
